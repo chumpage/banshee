@@ -17,18 +17,13 @@ link_prog=arm-linux-androideabi-g++
 c_defs="-DANDROID"
 inc_dirs=
 inc_dirs+=" -I$ndk/sources/cxx-stl/stlport/stlport"
-# inc_dirs+=" -I$ndk/sources/cxx-stl/system/include/"
 inc_dirs+=" -I$ndk/sources/cxx-stl/gabi++/include"
 inc_dirs+=" -I$ndk/platforms/android-9/arch-arm/usr/include"
 inc_dirs+=" -I$android_src/frameworks/base/include"
 inc_dirs+=" -I$android_src/hardware/libhardware/include"
 inc_dirs+=" -I$android_src/system/core/include"
-# inc_dirs+=" -I$android_src/bionic/libstdc++/include"
-# inc_dirs+=" -I/st/android/ndk-r7-lab126/platforms/android-9/arch-arm/usr/include"
-# inc_dirs+=" -I/st/android/ndk-r7-lab126/platforms/android-9/arch-arm/usr/include"
 libs=$android_src/out/target/product/$android_product/symbols/system/lib/libui.so
 libs+=" $ndk/sources/cxx-stl/stlport/libs/armeabi-v7a/libstlport_static.a"
-# linker_opts="-Wl,--entry=main -Wl,-dynamic-linker=/system/bin/linker"
 compiler_opts="-fno-rtti -fno-exceptions"
 
 echo $cpp_prog -g host.cpp -o host $compiler_opts $c_defs $inc_dirs $libs
