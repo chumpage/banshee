@@ -14,6 +14,7 @@ android_product=`echo $* | args.py android-product default=blaze`
 cc_prog=arm-linux-androideabi-gcc
 cpp_prog=arm-linux-androideabi-g++
 link_prog=arm-linux-androideabi-g++
+c_defs="-DANDROID"
 inc_dirs=
 inc_dirs+=" -I$ndk/sources/cxx-stl/stlport/stlport"
 # inc_dirs+=" -I$ndk/sources/cxx-stl/system/include/"
@@ -30,8 +31,12 @@ libs+=" $ndk/sources/cxx-stl/stlport/libs/armeabi-v7a/libstlport_static.a"
 # linker_opts="-Wl,--entry=main -Wl,-dynamic-linker=/system/bin/linker"
 compiler_opts="-fno-rtti -fno-exceptions"
 
-$cpp_prog -g host.cpp -o host $inc_dirs $libs $compiler_opts
-adb push host /data/local/banshee
+echo $cpp_prog -g host.cpp -o host $compiler_opts $c_defs $inc_dirs $libs
+$cpp_prog -g host.cpp -o host $compiler_opts $c_defs $inc_dirs $libs
 
-$cpp_prog -g renderer.cpp -o renderer $inc_dirs $libs $compiler_opts
+echo $cpp_prog -g renderer.cpp -o renderer $compiler_opts $c_defs $inc_dirs $libs
+$cpp_prog -g renderer.cpp -o renderer $compiler_opts $c_defs $inc_dirs $libs
+
+echo Copying to device
+adb push host /data/local/banshee
 adb push renderer /data/local/banshee

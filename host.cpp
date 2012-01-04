@@ -11,6 +11,7 @@
 #include <vector>
 
 using namespace android;
+using namespace std;
 
 int connection_handler(int connection_fd)
 {
@@ -110,7 +111,7 @@ int recv_connection()
 }
 
 int main() {
-  // vector<int> vals(10, 0);
+  vector<int> vals(10, 0);
   printf("Creating GraphicBuffer\n");
   GraphicBuffer buffer(1024, 1024, PIXEL_FORMAT_RGB_565, GraphicBuffer::USAGE_HW_TEXTURE);
   printf("Done creating GraphicBuffer\n");
