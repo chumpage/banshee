@@ -1,4 +1,5 @@
-// taken from http://www.thomasstover.com/uds.html
+// Socket setup and file descriptor transfer taken from
+// http://www.thomasstover.com/uds.html
 
 #include <stdio.h>
 #include <sys/socket.h>
@@ -7,33 +8,23 @@
 #include <unistd.h>
 #include <string.h>
 #include <ui/GraphicBuffer.h>
-#include "common.h"
 #include <vector>
+#include <cassert>
+#include "common.h"
 
 using namespace android;
 using namespace std;
 
-int connection_handler(int connection_fd)
-{
-  int nbytes;
-  char buffer[256];
-
-  nbytes = read(connection_fd, buffer, 256);
-  buffer[nbytes] = 0;
-
-  printf("MESSAGE FROM CLIENT: %s\n", buffer);
-  nbytes = snprintf(buffer, 256, "hello from the server");
-  write(connection_fd, buffer, nbytes);
- 
-  close(connection_fd);
-  return 0;
+void handle_connection(int sock) {
+  message msg = recv_message(sock);
+  printf("received message from renderer: %s\n", serialize_message(msg).c_str());
+  send_message(sock, form_terminate_message());
 }
 
-// ssize_t recvfrom(int socket, void *buffer, size_t length, int flags,
+// ssize_t recvfrom(int sock, void *buffer, size_t length, int flags,
 //              struct sockaddr *address, socklen_t *address_len);
 
-int recv_msg(int sock_fd)
-{
+int recv_msg(int sock_fd) {
   int nbytes;
   char buffer[256];
 
@@ -55,66 +46,49 @@ int recv_msg(int sock_fd)
   return 0;
 }
 
-int recv_connection()
-{
-  struct sockaddr_un address;
-  int socket_fd, connection_fd;
-  socklen_t address_length;
-  pid_t child;
- 
-  socket_fd = socket(PF_UNIX, g_stream ? SOCK_STREAM : SOCK_DGRAM, 0);
-  if(socket_fd < 0)
-  {
-    printf("socket() failed\n");
-    return 1;
-  } 
+bool run_host() {
+  int listen_socket = socket(PF_UNIX, g_stream ? SOCK_STREAM : SOCK_DGRAM, 0);
+  assert(listen_socket >= 0);
 
-  unlink("./demo_socket");
+  unlink(g_socket_path.c_str());
 
-  /* start with a clean address structure */
-  memset(&address, 0, sizeof(struct sockaddr_un));
+  sockaddr_un sock_addr;
+  memset(&sock_addr, 0, sizeof(sock_addr));
+  sock_addr.sun_family = AF_UNIX;
+  snprintf(sock_addr.sun_path, UNIX_PATH_MAX, g_socket_path.c_str());
 
-  address.sun_family = AF_UNIX;
-  snprintf(address.sun_path, UNIX_PATH_MAX, "./demo_socket");
-
-  if(bind(socket_fd, 
-         (struct sockaddr *) &address, 
-         sizeof(struct sockaddr_un)) != 0)
-  {
-    printf("bind() failed\n");
-    return 1;
-  }
+  int rc = bind(listen_socket, (sockaddr*)&sock_addr, sizeof(sock_addr));
+  assert(rc == 0);
 
   if(g_stream) {
-    if(listen(socket_fd, 5) != 0)
-    {
-      printf("listen() failed\n");
-      return 1;
-    }
+    rc = listen(listen_socket, 2);
+    assert(rc == 0);
 
-    while((connection_fd = accept(socket_fd, 
-                               (struct sockaddr *) &address,
-                               &address_length)) > -1)
-    {
-      connection_handler(connection_fd);
-      close(connection_fd);
-    }
+    // while(1) {
+      sockaddr_un renderer_addr;
+      memset(&renderer_addr, 0, sizeof(renderer_addr));
+      int addr_len;
+      int connection_socket = accept(listen_socket, (sockaddr*)&renderer_addr, &addr_len);
+      assert(connection_socket >= 0);
+      handle_connection(connection_socket);
+      close(connection_socket);
+    // }
   }
   else {
     while(1) 
-      recv_msg(socket_fd);
+      recv_msg(listen_socket);
   }
 
-  close(socket_fd);
-  unlink("./demo_socket");
-  return 0;
+  close(listen_socket);
+  unlink(g_socket_path.c_str());
+  return true;
 }
 
 int main() {
-  vector<int> vals(10, 0);
-  printf("Creating GraphicBuffer\n");
-  GraphicBuffer buffer(1024, 1024, PIXEL_FORMAT_RGB_565, GraphicBuffer::USAGE_HW_TEXTURE);
-  printf("Done creating GraphicBuffer\n");
-  return recv_connection();
+  // vector<int> vals(10, 0);
+  // printf("Creating GraphicBuffer\n");
+  // GraphicBuffer buffer(1024, 1024, PIXEL_FORMAT_RGB_565, GraphicBuffer::USAGE_HW_TEXTURE);
+  // printf("Done creating GraphicBuffer\n");
+  return run_host() ? 0 : 1;
   // return 0;
 }

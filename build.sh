@@ -26,11 +26,13 @@ libs=$android_src/out/target/product/$android_product/symbols/system/lib/libui.s
 libs+=" $ndk/sources/cxx-stl/stlport/libs/armeabi-v7a/libstlport_static.a"
 compiler_opts="-fno-rtti -fno-exceptions"
 
-echo $cpp_prog -g host.cpp -o host $compiler_opts $c_defs $inc_dirs $libs
-$cpp_prog -g host.cpp -o host $compiler_opts $c_defs $inc_dirs $libs
+cmd="$cpp_prog -g host.cpp common.cpp -o host $compiler_opts $c_defs $inc_dirs $libs"
+echo $cmd
+$cmd
 
-echo $cpp_prog -g renderer.cpp -o renderer $compiler_opts $c_defs $inc_dirs $libs
-$cpp_prog -g renderer.cpp -o renderer $compiler_opts $c_defs $inc_dirs $libs
+cmd="$cpp_prog -g renderer.cpp common.cpp -o renderer $compiler_opts $c_defs $inc_dirs $libs"
+echo $cmd
+$cmd
 
 echo Copying to device
 adb push host /data/local/banshee
