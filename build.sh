@@ -23,6 +23,7 @@ inc_dirs+=" -I$android_src/frameworks/base/include"
 inc_dirs+=" -I$android_src/hardware/libhardware/include"
 inc_dirs+=" -I$android_src/system/core/include"
 libs=$android_src/out/target/product/$android_product/symbols/system/lib/libui.so
+libs+=" $android_src/out/target/product/$android_product/symbols/system/lib/libcutils.so"
 libs+=" $ndk/sources/cxx-stl/stlport/libs/armeabi-v7a/libstlport_static.a"
 compiler_opts="-fno-rtti -fno-exceptions"
 

@@ -7,11 +7,16 @@
 #include "common.h"
 
 using namespace std;
+using namespace android;
 
 void handle_connection(int sock) {
   send_message(sock, form_connect_message());
+  GraphicBuffer gbuf(1024, 1024, PIXEL_FORMAT_RGB_565,
+    GraphicBuffer::USAGE_SW_WRITE_OFTEN | GraphicBuffer::USAGE_HW_TEXTURE);
+  message new_surface_msg("new-surface");
+  graphic_buffer_to_message(gbuf, new_surface_msg);
+  send_message(sock, new_surface_msg);
   message msg = recv_message(sock);
-  printf("received message from host: %s\n", serialize_message(msg).c_str());
 }
 
 bool run_renderer() {

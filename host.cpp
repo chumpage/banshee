@@ -17,7 +17,7 @@ using namespace std;
 
 void handle_connection(int sock) {
   message msg = recv_message(sock);
-  printf("received message from renderer: %s\n", serialize_message(msg).c_str());
+  msg = recv_message(sock);
   send_message(sock, form_terminate_message());
 }
 
