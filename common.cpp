@@ -37,10 +37,6 @@ vector<string> split(const string& str, char delim = ' ') {
 }
 
 vector<string> serialize_ints(const vector<int>& vals) {
-  // ostringstream ss;
-  // for(int i = 0; i < vals.size(); i++)
-  //   ss << (i == 0 ? "" : " ") << vals[i];
-  // return ss.str();
   vector<string> str_vals;
   for(int i = 0; i < vals.size(); i++)
     str_vals.push_back(to_str(vals[i]));
@@ -52,6 +48,22 @@ vector<int> parse_ints(const vector<string>& args) {
   for(int i = 0; i < args.size(); i++)
     vals.push_back(parse_str<int>(args[i]));
   return vals;
+}
+
+string debug_print_message(const message& msg, const string& header) {
+  ostringstream ss;
+  ss << header << " " << msg.type;
+  if(!msg.args.empty()) {
+    ss << ", args(" << msg.args.size() << ") =";
+    for(int i = 0; i < msg.args.size(); i++)
+      ss << " " << msg.args[i];
+  }
+  if(!msg.fds.empty()) {
+    ss << ", fds(" << msg.fds.size() << ") =";
+    for(int i = 0; i < msg.fds.size(); i++)
+      ss << " " << msg.fds[i];
+  }
+  return ss.str();
 }
 
 } // namespace {
@@ -107,7 +119,7 @@ sp<GraphicBuffer> message_to_graphic_buffer(const message& msg,
   assert(arg_offset+num_ints < msg.args.size());
   vector<int> buffer = parse_ints(
     vector<string>(msg.args.begin()+arg_offset+1,
-                   msg.args.begin()+arg_offset+num_ints));
+                   msg.args.begin()+arg_offset+num_ints+1));
   sp<GraphicBuffer> gb = new GraphicBuffer;
   status_t rc = gb->unflatten(&buffer[0],
                               buffer.size()*sizeof(int),
@@ -118,6 +130,7 @@ sp<GraphicBuffer> message_to_graphic_buffer(const message& msg,
   return gb;
 }
 
+#if 0
 message recv_message(int sock) {
   const int buffer_size = 1024;
   char buffer[buffer_size];
@@ -127,18 +140,12 @@ message recv_message(int sock) {
     printf("recv: %s, num fds = %d\n", buffer, 0);
   return parse_message(buffer);
 }
+#endif
 
-#if 0
 message recv_message(int sock) {
-  int sent_fd
-
-  message out_msg;;
-
-  /* start clean */
   msghdr socket_message;
   memset(&socket_message, 0, sizeof(socket_message));
 
-  /* setup a place to fill in message contents */
   const int msg_buffer_size = 1024;
   char msg_buffer[msg_buffer_size];
   iovec io_vec;
@@ -147,7 +154,6 @@ message recv_message(int sock) {
   socket_message.msg_iov = &io_vec;
   socket_message.msg_iovlen = 1;
 
-  /* provide space for the ancillary data */
   const int fd_buffer_size = CMSG_SPACE(64*sizeof(int));
   char fd_buffer[fd_buffer_size];
   socket_message.msg_control = fd_buffer;
@@ -160,30 +166,37 @@ message recv_message(int sock) {
 
   int rc = recvmsg(sock, &socket_message, flags);
   assert(rc >= 0);
-  message_buffer[rc] = '\0';
+  msg_buffer[rc] = '\0';
 
   assert((socket_message.msg_flags & MSG_CTRUNC) == 0);
 
-  /* iterate ancillary elements */
-  struct cmsghdr *control_message = NULL;
-  for(control_message = CMSG_FIRSTHDR(&socket_message);
+  message out_msg = parse_message(msg_buffer);
+
+  // iterate ancillary elements
+  for(cmsghdr* control_message = CMSG_FIRSTHDR(&socket_message);
       control_message != NULL;
       control_message = CMSG_NXTHDR(&socket_message, control_message)) {
     if((control_message->cmsg_level == SOL_SOCKET) &&
        (control_message->cmsg_type == SCM_RIGHTS)) {
-      sent_fd = *((int *) CMSG_DATA(control_message));
-      return sent_fd;
+      int num_fds = (control_message->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+      assert(num_fds <= 1000); // sanity check
+      int* fds = (int*)CMSG_DATA(control_message);
+      out_msg.fds.insert(out_msg.fds.end(), fds, fds+num_fds);
     }
   }
 
-  return -1;
- }
-#endif
+  if(g_print_ipc)
+    printf("%s\n", debug_print_message(out_msg, "recv: ").c_str());
 
-// void send_message(int sock, const message& msg) {
-//   string serialized_msg = serialize_message(msg);
-//   write(sock, serialized_msg.c_str(), serialized_msg.length());
-// }
+  return out_msg;
+ }
+
+#if 0
+void send_message(int sock, const message& msg) {
+  string serialized_msg = serialize_message(msg);
+  write(sock, serialized_msg.c_str(), serialized_msg.length());
+}
+#endif
 
 void send_message(int sock, const message& msg) {
   string serialized_msg = serialize_message(msg);
@@ -200,8 +213,6 @@ void send_message(int sock, const message& msg) {
   // Provide space for the ancillary data
   char* fd_buffer = NULL;
   if(!msg.fds.empty()) {
-    // socket_message.msg_control = &msg.fds[0];
-    // socket_message.msg_controllen = msg.fds.size()*sizeof(int);
     int fd_buffer_size = CMSG_SPACE(msg.fds.size()*sizeof(int));
     fd_buffer = new char[fd_buffer_size];
     socket_message.msg_control = fd_buffer;
@@ -217,7 +228,7 @@ void send_message(int sock, const message& msg) {
   }
 
   if(g_print_ipc)
-    printf("send: %s, num fds = %d\n", serialized_msg.c_str(), (int)msg.fds.size());
+    printf("%s\n", debug_print_message(msg, "send: ").c_str());
 
   int rc = sendmsg(sock, &socket_message, 0);
   assert(rc >= 0);

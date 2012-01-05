@@ -17,7 +17,23 @@ using namespace std;
 
 void handle_connection(int sock) {
   message msg = recv_message(sock);
+
   msg = recv_message(sock);
+  int args_read;
+  sp<GraphicBuffer> gbuf = message_to_graphic_buffer(msg, 0, /* out */ args_read);
+  // int* raw_surface = NULL;
+  unsigned char** raw_surface = NULL;
+  int rc = gbuf->lock(GraphicBuffer::USAGE_SW_READ_RARELY, (void**)&raw_surface);
+  if(rc != NO_ERROR)
+    printf("lock rc = %s\n", strerror(-rc));
+  assert(rc == NO_ERROR);
+  assert(raw_surface != NULL);
+  printf("raw_surface = %08p\n", raw_surface);
+  // sleep(600);
+  printf("first pixel = %d\n", raw_surface[0]);
+  rc = gbuf->unlock();
+  assert(rc == NO_ERROR);
+
   send_message(sock, form_terminate_message());
 }
 
