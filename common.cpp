@@ -77,7 +77,8 @@ unix_socket_address::unix_socket_address(const string& path) {
   assert(path.length()+1 <= UNIX_PATH_MAX);
   memset(&addr, 0, sizeof(addr));
   addr.sun_family = AF_UNIX;
-  snprintf(addr.sun_path, UNIX_PATH_MAX, path.c_str());
+  int chars_written = snprintf(addr.sun_path, UNIX_PATH_MAX, path.c_str());
+  assert(chars_written >= 0 && chars_written < UNIX_PATH_MAX);
 }
 
 unix_socket_address::unix_socket_address(const unix_socket_address& addr_) {
@@ -138,8 +139,8 @@ void graphic_buffer_to_message(const GraphicBuffer& gb, message& msg) {
   assert(gb.getFlattenedSize()%sizeof(int) == 0);
   vector<int> buffer(gb.getFlattenedSize()/sizeof(int));
   vector<int> fds(gb.getFdCount());
-  status_t rc = gb.flatten(&buffer[0], buffer.size()*sizeof(int), &fds[0], fds.size());
-  assert(rc == NO_ERROR);
+  check_android(gb.flatten(&buffer[0], buffer.size()*sizeof(int),
+                           &fds[0], fds.size()));
   vector<string> vals = serialize_ints(buffer);
   msg.args.push_back(to_str(vals.size()));
   msg.args.insert(msg.args.end(), vals.begin(), vals.end());
@@ -148,7 +149,7 @@ void graphic_buffer_to_message(const GraphicBuffer& gb, message& msg) {
 
 sp<GraphicBuffer> message_to_graphic_buffer(const message& msg,
                                             int arg_offset,
-                                            int& args_read)
+                                            int* args_read)
 {
   assert(arg_offset < msg.args.size());
   int num_ints = parse_str<int>(msg.args[arg_offset]);
@@ -157,31 +158,20 @@ sp<GraphicBuffer> message_to_graphic_buffer(const message& msg,
     vector<string>(msg.args.begin()+arg_offset+1,
                    msg.args.begin()+arg_offset+num_ints+1));
   sp<GraphicBuffer> gb = new GraphicBuffer;
-  status_t rc = gb->unflatten(&buffer[0],
+  assert(gb != NULL);
+  check_android(gb->unflatten(&buffer[0],
                               buffer.size()*sizeof(int),
                               const_cast<int*>(&msg.fds[0]),
-                              msg.fds.size());
-  assert(rc == NO_ERROR);
-  args_read = 1+num_ints;
+                              msg.fds.size()));
+  if(args_read)
+    *args_read = 1+num_ints;
   return gb;
 }
 
-#if 0
-message recv_message(int sock) {
-  const int buffer_size = 1024;
-  char buffer[buffer_size];
-  int msg_size = read(sock, buffer, buffer_size-1);
-  buffer[msg_size] = '\0';
-  if(g_print_ipc)
-    printf("recv: %s, num fds = %d\n", buffer, 0);
-  return parse_message(buffer);
-}
-#endif
-
 message recv_message(int sock, unix_socket_address* from_addr) {
-  unix_socket_address tmp_from_addr;
+  unix_socket_address from_addr_tmp;
   if(!from_addr)
-    from_addr = &tmp_from_addr;
+    from_addr = &from_addr_tmp;
 
   msghdr socket_message;
   memset(&socket_message, 0, sizeof(socket_message));
@@ -206,9 +196,9 @@ message recv_message(int sock, unix_socket_address* from_addr) {
   flags |= MSG_CMSG_CLOEXEC;
 #endif
 
-  int rc = recvmsg(sock, &socket_message, flags);
-  assert(rc >= 0);
-  msg_buffer[rc] = '\0';
+  int len = recvmsg(sock, &socket_message, flags);
+  check_unix(len);
+  msg_buffer[len] = '\0';
 
   assert((socket_message.msg_flags & MSG_CTRUNC) == 0);
 
@@ -224,11 +214,6 @@ message recv_message(int sock, unix_socket_address* from_addr) {
       assert(num_fds <= 1000); // sanity check
       int* fds = (int*)CMSG_DATA(control_message);
       out_msg.fds.insert(out_msg.fds.end(), fds, fds+num_fds);
-      // for(int i = 0; i < out_msg.fds.size(); i++) {
-      //   int dupd_fd = dup(out_msg.fds[i]);
-      //   printf("dup(%d) = %d\n", out_msg.fds[i], dupd_fd);
-      //   out_msg.fds[i] = dupd_fd;
-      // }
     }
   }
 
@@ -237,13 +222,6 @@ message recv_message(int sock, unix_socket_address* from_addr) {
 
   return out_msg;
  }
-
-#if 0
-void send_message(int sock, const message& msg) {
-  string serialized_msg = serialize_message(msg);
-  write(sock, serialized_msg.c_str(), serialized_msg.length());
-}
-#endif
 
 void send_message(int sock,
                   const message& msg,
@@ -281,7 +259,6 @@ void send_message(int sock,
   if(g_print_ipc)
     printf("%s\n", debug_print_message(msg, "send: ").c_str());
 
-  int rc = sendmsg(sock, &socket_message, 0);
-  assert(rc >= 0);
+  check_unix(sendmsg(sock, &socket_message, 0));
   delete[] fd_buffer;
 }

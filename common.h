@@ -11,6 +11,24 @@ const std::string g_host_socket_path = "ipc_host";
 const std::string g_renderer_socket_path = "ipc_renderer";
 const bool g_print_ipc = true;
 
+#define check_unix(proc) \
+  { \
+    int rc = proc; \
+    if(rc < 0) { \
+      printf("Unix error: rc=%d, errno=0x%x(%s). Exiting.\n", rc, errno, strerror(errno)); \
+      assert(false); \
+    } \
+  }
+
+#define check_android(proc) \
+  { \
+    int rc = proc; \
+    if(rc < 0) { \
+      printf("Android Unix error: rc=%d, errno=0x%x(%s). Exiting.\n", rc, errno, strerror(-errno)); \
+      assert(false); \
+    } \
+  }
+
 struct unix_socket_address {
   unix_socket_address();
   unix_socket_address(const std::string& path);
@@ -45,7 +63,7 @@ void graphic_buffer_to_message(const android::GraphicBuffer& gb, message& msg);
 android::sp<android::GraphicBuffer> message_to_graphic_buffer(
   const message& msg,
   int arg_offset,
-  int& args_read);
+  int* args_read = NULL);
 
 message recv_message(int socket, unix_socket_address* from_addr = NULL);
 void send_message(int socket,
