@@ -18,14 +18,15 @@ void handle_connection(int sock) {
   if(send_surface) {
     GraphicBuffer gbuf(1024, 1024, PIXEL_FORMAT_RGB_565,
     GraphicBuffer::USAGE_SW_WRITE_OFTEN |
-    GraphicBuffer::USAGE_SW_READ_OFTEN /*|
-                                         GraphicBuffer::USAGE_HW_TEXTURE*/);
+    GraphicBuffer::USAGE_SW_READ_OFTEN
+      | GraphicBuffer::USAGE_HW_TEXTURE
+    );
     int* raw_surface = NULL;
     int rc = gbuf.lock(GraphicBuffer::USAGE_SW_WRITE_OFTEN, (void**)&raw_surface);
     assert(rc == NO_ERROR);
     assert(raw_surface != NULL);
     printf("raw_surface = %08p\n", raw_surface);
-    sleep(10);
+    // sleep(10);
     raw_surface[0] = 123456;
     rc = gbuf.unlock();
     assert(rc == NO_ERROR);

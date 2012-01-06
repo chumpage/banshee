@@ -9,7 +9,7 @@
 #include <string.h>
 #include <ui/GraphicBuffer.h>
 #include <ui/GraphicBufferMapper.h>
-// #include <private/ui/sw_gralloc_handle.h>
+#include <private/ui/sw_gralloc_handle.h>
 #include <vector>
 #include <cassert>
 #include "common.h"
@@ -26,6 +26,8 @@ void handle_connection(int sock) {
     sp<GraphicBuffer> gbuf = message_to_graphic_buffer(msg, 0, /* out */ args_read);
     // int* raw_surface = NULL;
     // assert(sw_gralloc_handle_t::validate(gbuf->handle) == 0);
+    printf("we have a %s buffer\n",
+           sw_gralloc_handle_t::validate(gbuf->handle) == 0 ? "software" : "hardware");
     // int rc = sw_gralloc_handle_t::registerBuffer((sw_gralloc_handle_t*)gbuf->handle);
     int rc = GraphicBufferMapper::get().registerBuffer(gbuf->handle);
     assert(rc == NO_ERROR);
@@ -36,7 +38,7 @@ void handle_connection(int sock) {
     assert(rc == NO_ERROR);
     assert(raw_surface != NULL);
     printf("raw_surface = %08p\n", raw_surface);
-    sleep(10);
+    // sleep(10);
     printf("first pixel = %d\n", raw_surface[0]);
     rc = gbuf->unlock();
     assert(rc == NO_ERROR);

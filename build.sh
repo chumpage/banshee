@@ -14,7 +14,7 @@ android_product=`echo $* | args.py android-product default=blaze`
 cc_prog=arm-linux-androideabi-gcc
 cpp_prog=arm-linux-androideabi-g++
 link_prog=arm-linux-androideabi-g++
-c_defs="-DANDROID"
+c_defs="-DANDROID -DHAVE_PTHREADS"
 inc_dirs=
 inc_dirs+=" -I$ndk/sources/cxx-stl/stlport/stlport"
 inc_dirs+=" -I$ndk/sources/cxx-stl/gabi++/include"
