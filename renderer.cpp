@@ -10,7 +10,8 @@ using namespace std;
 using namespace android;
 
 void handle_connection(int sock) {
-  send_message(sock, form_connect_message());
+  unix_socket_address host_addr(g_host_socket_path);
+  send_message(sock, form_connect_message(), host_addr);
 
   FILE* file = NULL;
   bool send_surface = true;
@@ -33,7 +34,7 @@ void handle_connection(int sock) {
 
     message new_surface_msg("new-surface");
     graphic_buffer_to_message(gbuf, new_surface_msg);
-    send_message(sock, new_surface_msg);
+    send_message(sock, new_surface_msg, host_addr);
   }
   else {
     file = fopen("test.txt", "w");
@@ -42,7 +43,7 @@ void handle_connection(int sock) {
     string text = "writing from the renderer\n";
     write(fileno(file), text.c_str(), text.length());
     file_msg.fds.push_back(fileno(file));
-    send_message(sock, file_msg);
+    send_message(sock, file_msg, host_addr);
     // fclose(file);
   }
 
@@ -52,22 +53,18 @@ void handle_connection(int sock) {
 }
 
 bool run_renderer() {
-  int rc = 0;
-  int sock = socket(PF_UNIX, g_stream ? SOCK_STREAM : SOCK_DGRAM, 0);
+  int sock = socket(PF_UNIX, SOCK_DGRAM, 0);
   assert(sock >= 0);
 
-  sockaddr_un addr;
-  memset(&addr, 0, sizeof(addr));
-  addr.sun_family = AF_UNIX;
-  snprintf(addr.sun_path, UNIX_PATH_MAX, g_socket_path.c_str());
+  unlink(g_renderer_socket_path.c_str());
 
-  if(g_stream) {
-    rc = connect(sock, (sockaddr*)&addr, sizeof(addr));
-    assert(rc == 0);
-  }
+  unix_socket_address addr(g_renderer_socket_path);
+  int rc = bind(sock, addr.sock_addr(), addr.len());
+  assert(rc == 0);
 
   handle_connection(sock);
   close(sock);
+  unlink(g_renderer_socket_path.c_str());
   return true;
 }
 

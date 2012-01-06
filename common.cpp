@@ -68,6 +68,42 @@ string debug_print_message(const message& msg, const string& header) {
 
 } // namespace {
 
+
+unix_socket_address::unix_socket_address() {
+  memset(&addr, 0, sizeof(addr));
+}
+
+unix_socket_address::unix_socket_address(const string& path) {
+  assert(path.length()+1 <= UNIX_PATH_MAX);
+  memset(&addr, 0, sizeof(addr));
+  addr.sun_family = AF_UNIX;
+  snprintf(addr.sun_path, UNIX_PATH_MAX, path.c_str());
+}
+
+unix_socket_address::unix_socket_address(const unix_socket_address& addr_) {
+  *this = addr_;
+}
+
+const unix_socket_address& unix_socket_address::operator=(
+  const unix_socket_address& addr_) {
+  if(this != &addr_)
+    memcpy(&addr, &addr_.addr, sizeof(addr));
+  return *this;
+}
+
+sockaddr* unix_socket_address::sock_addr() const {
+  return (sockaddr*)&addr;
+}
+
+sockaddr_un* unix_socket_address::sock_addr_un() const {
+  return const_cast<sockaddr_un*>(&addr);
+}
+
+socklen_t unix_socket_address::len() const {
+  return sizeof(addr);
+}
+
+
 message::message() {
 }
 
@@ -142,9 +178,15 @@ message recv_message(int sock) {
 }
 #endif
 
-message recv_message(int sock) {
+message recv_message(int sock, unix_socket_address* from_addr) {
+  unix_socket_address tmp_from_addr;
+  if(!from_addr)
+    from_addr = &tmp_from_addr;
+
   msghdr socket_message;
   memset(&socket_message, 0, sizeof(socket_message));
+  socket_message.msg_name = from_addr->sock_addr();
+  socket_message.msg_namelen = from_addr->len();
 
   const int msg_buffer_size = 1024;
   char msg_buffer[msg_buffer_size];
@@ -203,7 +245,9 @@ void send_message(int sock, const message& msg) {
 }
 #endif
 
-void send_message(int sock, const message& msg) {
+void send_message(int sock,
+                  const message& msg,
+                  const unix_socket_address& to_addr) {
   string serialized_msg = serialize_message(msg);
   iovec io_vec;
   io_vec.iov_base = &serialized_msg[0];
@@ -212,6 +256,8 @@ void send_message(int sock, const message& msg) {
   // Initialize socket message
   msghdr socket_message;
   memset(&socket_message, 0, sizeof(socket_message));
+  socket_message.msg_name = to_addr.sock_addr();
+  socket_message.msg_namelen = to_addr.len();
   socket_message.msg_iov = &io_vec;
   socket_message.msg_iovlen = 1;
 

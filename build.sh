@@ -26,13 +26,13 @@ libs=$android_src/out/target/product/$android_product/symbols/system/lib/libui.s
 libs+=" $android_src/out/target/product/$android_product/symbols/system/lib/libutils.so"
 libs+=" $android_src/out/target/product/$android_product/symbols/system/lib/libcutils.so"
 libs+=" $ndk/sources/cxx-stl/stlport/libs/armeabi-v7a/libstlport_static.a"
-compiler_opts="-fno-rtti -fno-exceptions"
+compiler_opts="-fno-rtti -fno-exceptions -Wno-multichar"
 
-cmd="$cpp_prog -g host.cpp common.cpp -o host $compiler_opts $c_defs $inc_dirs $libs"
+cmd="$cpp_prog -g host.cpp common.cpp -o host $c_defs $compiler_opts $inc_dirs $libs"
 echo $cmd
 $cmd
 
-cmd="$cpp_prog -g renderer.cpp common.cpp -o renderer $compiler_opts $c_defs $inc_dirs $libs"
+cmd="$cpp_prog -g renderer.cpp common.cpp -o renderer $c_defs $compiler_opts $inc_dirs $libs"
 echo $cmd
 $cmd
 

@@ -18,7 +18,8 @@ using namespace android;
 using namespace std;
 
 void handle_connection(int sock) {
-  message msg = recv_message(sock);
+  unix_socket_address renderer_addr;
+  message msg = recv_message(sock, &renderer_addr);
 
   msg = recv_message(sock);
   if(msg.type == "new-surface") {
@@ -53,7 +54,7 @@ void handle_connection(int sock) {
     close(msg.fds[0]);
   }
 
-  send_message(sock, form_terminate_message());
+  send_message(sock, form_terminate_message(), renderer_addr);
 }
 
 // ssize_t recvfrom(int sock, void *buffer, size_t length, int flags,
@@ -82,40 +83,23 @@ int recv_msg(int sock_fd) {
 }
 
 bool run_host() {
-  int listen_socket = socket(PF_UNIX, g_stream ? SOCK_STREAM : SOCK_DGRAM, 0);
-  assert(listen_socket >= 0);
+  int sock = socket(PF_UNIX, SOCK_DGRAM, 0);
+  assert(sock >= 0);
 
-  unlink(g_socket_path.c_str());
+  unlink(g_host_socket_path.c_str());
 
   sockaddr_un sock_addr;
   memset(&sock_addr, 0, sizeof(sock_addr));
   sock_addr.sun_family = AF_UNIX;
-  snprintf(sock_addr.sun_path, UNIX_PATH_MAX, g_socket_path.c_str());
+  snprintf(sock_addr.sun_path, UNIX_PATH_MAX, g_host_socket_path.c_str());
 
-  int rc = bind(listen_socket, (sockaddr*)&sock_addr, sizeof(sock_addr));
+  int rc = bind(sock, (sockaddr*)&sock_addr, sizeof(sock_addr));
   assert(rc == 0);
 
-  if(g_stream) {
-    rc = listen(listen_socket, 2);
-    assert(rc == 0);
+  handle_connection(sock);
 
-    // while(1) {
-      sockaddr_un renderer_addr;
-      memset(&renderer_addr, 0, sizeof(renderer_addr));
-      int addr_len;
-      int connection_socket = accept(listen_socket, (sockaddr*)&renderer_addr, &addr_len);
-      assert(connection_socket >= 0);
-      handle_connection(connection_socket);
-      close(connection_socket);
-    // }
-  }
-  else {
-    while(1) 
-      recv_msg(listen_socket);
-  }
-
-  close(listen_socket);
-  unlink(g_socket_path.c_str());
+  close(sock);
+  unlink(g_host_socket_path.c_str());
   return true;
 }
 
