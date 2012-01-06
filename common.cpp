@@ -182,6 +182,11 @@ message recv_message(int sock) {
       assert(num_fds <= 1000); // sanity check
       int* fds = (int*)CMSG_DATA(control_message);
       out_msg.fds.insert(out_msg.fds.end(), fds, fds+num_fds);
+      // for(int i = 0; i < out_msg.fds.size(); i++) {
+      //   int dupd_fd = dup(out_msg.fds[i]);
+      //   printf("dup(%d) = %d\n", out_msg.fds[i], dupd_fd);
+      //   out_msg.fds[i] = dupd_fd;
+      // }
     }
   }
 

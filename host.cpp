@@ -8,6 +8,8 @@
 #include <unistd.h>
 #include <string.h>
 #include <ui/GraphicBuffer.h>
+#include <ui/GraphicBufferMapper.h>
+// #include <private/ui/sw_gralloc_handle.h>
 #include <vector>
 #include <cassert>
 #include "common.h"
@@ -19,20 +21,35 @@ void handle_connection(int sock) {
   message msg = recv_message(sock);
 
   msg = recv_message(sock);
-  int args_read;
-  sp<GraphicBuffer> gbuf = message_to_graphic_buffer(msg, 0, /* out */ args_read);
-  // int* raw_surface = NULL;
-  unsigned char** raw_surface = NULL;
-  int rc = gbuf->lock(GraphicBuffer::USAGE_SW_READ_RARELY, (void**)&raw_surface);
-  if(rc != NO_ERROR)
-    printf("lock rc = %s\n", strerror(-rc));
-  assert(rc == NO_ERROR);
-  assert(raw_surface != NULL);
-  printf("raw_surface = %08p\n", raw_surface);
-  // sleep(600);
-  printf("first pixel = %d\n", raw_surface[0]);
-  rc = gbuf->unlock();
-  assert(rc == NO_ERROR);
+  if(msg.type == "new-surface") {
+    int args_read;
+    sp<GraphicBuffer> gbuf = message_to_graphic_buffer(msg, 0, /* out */ args_read);
+    // int* raw_surface = NULL;
+    // assert(sw_gralloc_handle_t::validate(gbuf->handle) == 0);
+    // int rc = sw_gralloc_handle_t::registerBuffer((sw_gralloc_handle_t*)gbuf->handle);
+    int rc = GraphicBufferMapper::get().registerBuffer(gbuf->handle);
+    assert(rc == NO_ERROR);
+    unsigned char** raw_surface = NULL;
+    rc = gbuf->lock(GraphicBuffer::USAGE_SW_READ_RARELY, (void**)&raw_surface);
+    if(rc != NO_ERROR)
+      printf("lock rc = %s\n", strerror(-rc));
+    assert(rc == NO_ERROR);
+    assert(raw_surface != NULL);
+    printf("raw_surface = %08p\n", raw_surface);
+    sleep(10);
+    printf("first pixel = %d\n", raw_surface[0]);
+    rc = gbuf->unlock();
+    assert(rc == NO_ERROR);
+    // rc = sw_gralloc_handle_t::unregisterBuffer((sw_gralloc_handle_t*)gbuf->handle);
+    rc = GraphicBufferMapper::get().unregisterBuffer(gbuf->handle);
+    assert(rc == NO_ERROR);
+  }
+  else if(msg.type == "file-test") {
+    assert(msg.fds.size() == 1);
+    string text = "writing from the host\n";
+    write(msg.fds[0], text.c_str(), text.length());
+    close(msg.fds[0]);
+  }
 
   send_message(sock, form_terminate_message());
 }
