@@ -10,7 +10,7 @@ ndk=`echo $* | args.py ndk setting=android-ndk-lab126 required=1`
 android_src=`echo $* | args.py fire setting=fire required=1`
 export PATH=$PATH:$ndk/toolchains/arm-linux-androideabi-4.4.3/prebuilt/linux-x86/bin/
 android_product=`echo $* | args.py android-product default=blaze`
-android_target=`echo $* | args.py android-target default=android-9`
+android_target=`echo $* | args.py android-target default=android-10`
 out_dir=out
 
 cc_prog=arm-linux-androideabi-gcc
@@ -20,7 +20,6 @@ c_defs="-DANDROID -DHAVE_PTHREADS"
 inc_dirs=
 inc_dirs+=" -I$ndk/sources/cxx-stl/stlport/stlport"
 inc_dirs+=" -I$ndk/sources/cxx-stl/gabi++/include"
-inc_dirs+=" -I$ndk/platforms/$android_target/arch-arm/usr/include"
 inc_dirs+=" -I$android_src/frameworks/base/include"
 inc_dirs+=" -I$android_src/hardware/libhardware/include"
 inc_dirs+=" -I$android_src/system/core/include"
