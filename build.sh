@@ -10,6 +10,7 @@ ndk=`echo $* | args.py ndk setting=android-ndk-lab126 required=1`
 android_src=`echo $* | args.py fire setting=fire required=1`
 export PATH=$PATH:$ndk/toolchains/arm-linux-androideabi-4.4.3/prebuilt/linux-x86/bin/
 android_product=`echo $* | args.py android-product default=blaze`
+android_target=`echo $* | args.py android-target default=android-9`
 out_dir=out
 
 cc_prog=arm-linux-androideabi-gcc
@@ -19,7 +20,7 @@ c_defs="-DANDROID -DHAVE_PTHREADS"
 inc_dirs=
 inc_dirs+=" -I$ndk/sources/cxx-stl/stlport/stlport"
 inc_dirs+=" -I$ndk/sources/cxx-stl/gabi++/include"
-inc_dirs+=" -I$ndk/platforms/android-9/arch-arm/usr/include"
+inc_dirs+=" -I$ndk/platforms/$android_target/arch-arm/usr/include"
 inc_dirs+=" -I$android_src/frameworks/base/include"
 inc_dirs+=" -I$android_src/hardware/libhardware/include"
 inc_dirs+=" -I$android_src/system/core/include"
@@ -39,6 +40,14 @@ cmd="$cpp_prog -g renderer.cpp common.cpp -o $out_dir/renderer $c_defs $compiler
 echo $cmd
 $cmd
 
-echo Copying to device
-adb push $out_dir/host /data/local/banshee
-adb push $out_dir/renderer /data/local/banshee
+echo Deploying to device
+adb push $out_dir/host /data/local/banshee/host
+adb push $out_dir/renderer /data/local/banshee/renderer
+
+cd host
+$ndk/ndk-build APP_OPTIM=debug ANDROID_SRC=$android_src ANDROID_PRODUCT=$android_product
+if [ ! -f build.xml ]; then
+    android update project --target $android_target --path . --name BansheeHost
+fi
+ant -q debug
+adb -d install -r bin/BansheeHost-debug.apk
