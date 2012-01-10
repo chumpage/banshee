@@ -4,10 +4,8 @@
 #include <unistd.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
-#include <GLES/gl.h>
-#include <GLES/glext.h>
-// #include <GLES2/gl2.h>
-// #include <GLES2/gl2ext.h>
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
 #include <android_native_app_glue.h>
 #include <ui/GraphicBuffer.h>
 #include <ui/GraphicBufferMapper.h>
@@ -99,16 +97,17 @@ int init_display(app_state* app) {
   assert(display != EGL_NO_DISPLAY);
   check_egl(eglInitialize(display, 0, 0));
 
-  const EGLint attribs[] = {
+  const EGLint config_attribs[] = {
     EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
     EGL_BLUE_SIZE, 8,
     EGL_GREEN_SIZE, 8,
     EGL_RED_SIZE, 8,
+    EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
     EGL_NONE
   };
   EGLint numConfigs;
   EGLConfig config;
-  check_egl(eglChooseConfig(display, attribs, &config, 1, &numConfigs));
+  check_egl(eglChooseConfig(display, config_attribs, &config, 1, &numConfigs));
 
   /* EGL_NATIVE_VISUAL_ID is an attribute of the EGLConfig that is
    * guaranteed to be accepted by ANativeWindow_setBuffersGeometry().
@@ -122,7 +121,12 @@ int init_display(app_state* app) {
   EGLSurface surface = eglCreateWindowSurface(
     display, config, app->android_app_instance->window, NULL);
   check_egl(surface != EGL_NO_SURFACE);
-  EGLContext context = eglCreateContext(display, config, NULL, NULL);
+
+  const EGLint context_attribs[] = {
+    EGL_CONTEXT_CLIENT_VERSION, 2,
+    EGL_NONE
+  };
+  EGLContext context = eglCreateContext(display, config, NULL, context_attribs);
   check_egl(context != EGL_NO_CONTEXT);
 
   check_egl(eglMakeCurrent(display, surface, surface, context));
@@ -138,9 +142,7 @@ int init_display(app_state* app) {
   app->height = h;
 
   // Initialize GL state.
-  glHint(GL_PERSPECTIVE_CORRECTION_HINT, GL_FASTEST);
-  glEnable(GL_CULL_FACE);
-  glShadeModel(GL_SMOOTH);
+  glDisable(GL_CULL_FACE);
   glDisable(GL_DEPTH_TEST);
   check_gl();
 

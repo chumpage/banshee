@@ -15,7 +15,7 @@ LOCAL_C_INCLUDES += $(ANDROID_SRC)/system/core/include
 LOCAL_LDLIBS := $(ANDROID_SRC)/out/target/product/$(ANDROID_PRODUCT)/symbols/system/lib/libui.so
 LOCAL_LDLIBS += $(ANDROID_SRC)/out/target/product/$(ANDROID_PRODUCT)/symbols/system/lib/libutils.so
 LOCAL_LDLIBS += $(ANDROID_SRC)/out/target/product/$(ANDROID_PRODUCT)/symbols/system/lib/libcutils.so
-LOCAL_LDLIBS += -llog -landroid -lEGL -lGLESv2 -lGLESv1_CM
+LOCAL_LDLIBS += -llog -landroid -lEGL -lGLESv2
 LOCAL_STATIC_LIBRARIES := android_native_app_glue
 
 include $(BUILD_SHARED_LIBRARY)
