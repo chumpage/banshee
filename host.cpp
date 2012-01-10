@@ -26,6 +26,7 @@ void run_host(int sock) {
   message msg = recv_message(sock, &renderer_addr);
 
   msg = recv_message(sock);
+#if 0
   if(msg.type == "new-surface") {
     sp<GraphicBuffer> gbuf = message_to_graphic_buffer(msg, 0);
     printf("we have a %s buffer\n",
@@ -45,6 +46,7 @@ void run_host(int sock) {
     write(msg.fds[0], text.c_str(), text.length());
     check_unix(close(msg.fds[0]));
   }
+#endif
 
   send_message(sock, form_terminate_message(), renderer_addr);
 }

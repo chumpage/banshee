@@ -135,6 +135,23 @@ message form_terminate_message() {
   return message("terminate");
 }
 
+message form_request_surfaces_message(int width, int height) {
+  message msg("request-surfaces");
+  msg.args.push_back(to_str(width));
+  msg.args.push_back(to_str(height));
+  return msg;
+}
+
+void unpack_request_surfaces_message(const message& msg, int* width, int* height) {
+  assert(width && height);
+  assert(msg.type == "request-surfaces");
+  assert(msg.args.size() == 2);
+  *width = parse_str<int>(msg.args[0]);
+  *height = parse_str<int>(msg.args[1]);
+}
+
+namespace {
+
 void graphic_buffer_to_message(const GraphicBuffer& gb, message& msg) {
   assert(gb.getFlattenedSize()%sizeof(int) == 0);
   vector<int> buffer(gb.getFlattenedSize()/sizeof(int));
@@ -142,30 +159,56 @@ void graphic_buffer_to_message(const GraphicBuffer& gb, message& msg) {
   check_android(gb.flatten(&buffer[0], buffer.size()*sizeof(int),
                            &fds[0], fds.size()));
   vector<string> vals = serialize_ints(buffer);
+  msg.args.push_back(to_str(fds.size()));
   msg.args.push_back(to_str(vals.size()));
   msg.args.insert(msg.args.end(), vals.begin(), vals.end());
-  msg.fds = fds;
+  msg.fds.insert(msg.fds.end(), fds.begin(), fds.end());
 }
 
 sp<GraphicBuffer> message_to_graphic_buffer(const message& msg,
-                                            int arg_offset,
-                                            int* args_read)
+                                            int& arg_offset,
+                                            int& fd_offset)
 {
   assert(arg_offset < msg.args.size());
+  int num_fds = parse_str<int>(msg.args[arg_offset]);
+  arg_offset++;
   int num_ints = parse_str<int>(msg.args[arg_offset]);
-  assert(arg_offset+num_ints < msg.args.size());
+  arg_offset++;
+  assert(fd_offset+num_fds <= msg.fds.size());
+  assert(arg_offset+num_ints <= msg.args.size());
   vector<int> buffer = parse_ints(
-    vector<string>(msg.args.begin()+arg_offset+1,
-                   msg.args.begin()+arg_offset+num_ints+1));
+    vector<string>(msg.args.begin()+arg_offset,
+                   msg.args.begin()+arg_offset+num_ints));
+  arg_offset += num_ints;
+  vector<int> fds = vector<int>(msg.fds.begin()+fd_offset,
+                                msg.fds.begin()+fd_offset+num_fds);
+  fd_offset += num_fds;
   sp<GraphicBuffer> gb = new GraphicBuffer;
   assert(gb != NULL);
   check_android(gb->unflatten(&buffer[0],
                               buffer.size()*sizeof(int),
-                              const_cast<int*>(&msg.fds[0]),
-                              msg.fds.size()));
-  if(args_read)
-    *args_read = 1+num_ints;
+                              const_cast<int*>(&fds[0]),
+                              fds.size()));
   return gb;
+}
+
+} // namespace {
+
+message form_surfaces_message(const GraphicBuffer& front_gbuf,
+                              const GraphicBuffer& back_gbuf) {
+  message msg("surfaces");
+  graphic_buffer_to_message(front_gbuf, msg);
+  graphic_buffer_to_message(back_gbuf, msg);
+  return msg;
+}
+
+void unpack_surfaces_message(const message& msg,
+                             sp<GraphicBuffer>* front_gbuf,
+                             sp<GraphicBuffer>* back_gbuf) {
+  assert(front_gbuf && back_gbuf);
+  int arg_offset = 0, fd_offset = 0;
+  *front_gbuf = message_to_graphic_buffer(msg, arg_offset, fd_offset);
+  *back_gbuf = message_to_graphic_buffer(msg, arg_offset, fd_offset);
 }
 
 bool is_address_bound(const unix_socket_address& addr) {

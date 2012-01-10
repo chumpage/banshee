@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <ui/GraphicBuffer.h>
+#include <utils/RefBase.h>
 
 const std::string g_host_socket_path = "/data/local/banshee/ipc_host";
 const std::string g_renderer_socket_path = "/data/local/banshee/ipc_renderer";
@@ -91,12 +92,14 @@ std::string serialize_message(const message& msg);
 
 message form_connect_message();
 message form_terminate_message();
+message form_request_surfaces_message(int width, int height);
+void unpack_request_surfaces_message(const message& msg, int* width, int* height);
 
-void graphic_buffer_to_message(const android::GraphicBuffer& gb, message& msg);
-android::sp<android::GraphicBuffer> message_to_graphic_buffer(
-  const message& msg,
-  int arg_offset,
-  int* args_read = NULL);
+message form_surfaces_message(const android::GraphicBuffer& front_gbuf,
+                              const android::GraphicBuffer& back_gbuf);
+void unpack_surfaces_message(const message& msg,
+                             android::sp<android::GraphicBuffer>* front_gbuf,
+                             android::sp<android::GraphicBuffer>* back_gbuf);
 
 bool is_address_bound(const unix_socket_address& addr);
 
