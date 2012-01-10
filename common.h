@@ -7,15 +7,27 @@
 #include <sys/un.h>
 #include <ui/GraphicBuffer.h>
 
-const std::string g_host_socket_path = "ipc_host";
-const std::string g_renderer_socket_path = "ipc_renderer";
+const std::string g_host_socket_path = "/data/local/banshee/ipc_host";
+const std::string g_renderer_socket_path = "/data/local/banshee/ipc_renderer";
 const bool g_print_ipc = true;
+
+#if defined(ANDROID_APP)
+#include <android/log.h>
+#define logi(...) ((void)__android_log_print(ANDROID_LOG_INFO, "banshee-host", __VA_ARGS__))
+#define logw(...) ((void)__android_log_print(ANDROID_LOG_WARN, "banshee-host", __VA_ARGS__))
+#define loge(...) ((void)__android_log_print(ANDROID_LOG_ERROR, "banshee-host", __VA_ARGS__))
+#else
+#define logi(...) printf(__VA_ARGS__);
+#define logw(...) printf(__VA_ARGS__);
+#define loge(...) printf(__VA_ARGS__);
+#endif
 
 #define check_unix(proc) \
   { \
     int rc = proc; \
     if(rc < 0) { \
-      printf("Unix error: rc=%d, errno=0x%x(%s). Exiting.\n", rc, errno, strerror(errno)); \
+      loge("Unix error at file %s, line %d: rc=%d, errno=0x%x(%s). Exiting.\n", \
+           __FILE__, __LINE__, rc, errno, strerror(errno)); \
       assert(false); \
     } \
   }
@@ -24,7 +36,28 @@ const bool g_print_ipc = true;
   { \
     int rc = proc; \
     if(rc < 0) { \
-      printf("Android Unix error: rc=%d, errno=0x%x(%s). Exiting.\n", rc, errno, strerror(-errno)); \
+      loge("Android Unix error at file %s, line %d: rc=%d, errno=0x%x(%s). Exiting.\n", \
+           __FILE__, __LINE__, rc, errno, strerror(-errno)); \
+      assert(false); \
+    } \
+  }
+
+#define check_egl(proc) \
+  { \
+    EGLBoolean rc = proc; \
+    if(rc == EGL_FALSE) { \
+      loge("EGL error at file %s, line %d: 0x%x. Exiting.\n", \
+           __FILE__, __LINE__, eglGetError()); \
+      assert(false); \
+    } \
+  }
+
+#define check_gl() \
+  { \
+    GLenum error = glGetError(); \
+    if(error != GL_NO_ERROR) { \
+      loge("GL error at file %s, line %d: 0x%x. Exiting.\n", \
+           __FILE__, __LINE__, error); \
       assert(false); \
     } \
   }
@@ -64,6 +97,8 @@ android::sp<android::GraphicBuffer> message_to_graphic_buffer(
   const message& msg,
   int arg_offset,
   int* args_read = NULL);
+
+bool is_address_bound(const unix_socket_address& addr);
 
 message recv_message(int socket, unix_socket_address* from_addr = NULL);
 void send_message(int socket,

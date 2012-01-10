@@ -4,6 +4,11 @@ include $(CLEAR_VARS)
 
 LOCAL_MODULE    := host
 LOCAL_SRC_FILES := host.cpp ../../common.cpp
+LOCAL_CFLAGS := -Wno-multichar \
+                -DHAVE_PTHREADS \
+                -DANDROID_APP \
+                -DEGL_EGLEXT_PROTOTYPES \
+                -DGL_GLEXT_PROTOTYPES
 LOCAL_C_INCLUDES := $(ANDROID_SRC)/frameworks/base/include
 LOCAL_C_INCLUDES += $(ANDROID_SRC)/hardware/libhardware/include
 LOCAL_C_INCLUDES += $(ANDROID_SRC)/system/core/include

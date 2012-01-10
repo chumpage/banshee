@@ -1,13 +1,21 @@
+#include <cassert>
 #include <jni.h>
 #include <errno.h>
+#include <unistd.h>
 #include <EGL/egl.h>
+#include <EGL/eglext.h>
 #include <GLES/gl.h>
-#include <android/log.h>
+#include <GLES/glext.h>
+// #include <GLES2/gl2.h>
+// #include <GLES2/gl2ext.h>
 #include <android_native_app_glue.h>
+#include <ui/GraphicBuffer.h>
+#include <ui/GraphicBufferMapper.h>
+#include <private/ui/sw_gralloc_handle.h>
 #include "../../common.h"
 
-#define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO, "banshee-host", __VA_ARGS__))
-#define LOGW(...) ((void)__android_log_print(ANDROID_LOG_WARN, "banshee-host", __VA_ARGS__))
+using namespace std;
+using namespace android;
 
 struct app_state {
   android_app* android_app_instance;
@@ -20,12 +28,76 @@ struct app_state {
   int32_t height;
 };
 
+bool quick_texture_test(EGLContext context) {
+  if(!is_address_bound(g_renderer_socket_path)) {
+    loge("The renderer doesn't seem to be running. Exiting.\n");
+    assert(false);
+  }
+
+  unlink(g_host_socket_path.c_str());
+
+  int sock = socket(PF_UNIX, SOCK_DGRAM, 0);
+  check_unix(sock);
+
+  unix_socket_address addr(g_host_socket_path.c_str());
+  check_unix(bind(sock, addr.sock_addr(), addr.len()));
+
+  unix_socket_address renderer_addr(g_renderer_socket_path);
+  send_message(sock, message("connect"), renderer_addr);
+  message msg = recv_message(sock);
+  assert(msg.type == "new-surface");
+
+  {
+    sp<GraphicBuffer> gbuf = message_to_graphic_buffer(msg, 0);
+    logi("we have a %s buffer",
+       sw_gralloc_handle_t::validate(gbuf->handle) == 0 ? "software" : "hardware");
+    check_android(GraphicBufferMapper::get().registerBuffer(gbuf->handle));
+    unsigned short** raw_surface = NULL;
+    check_android(gbuf->lock(GraphicBuffer::USAGE_SW_READ_RARELY,
+                           (void**)&raw_surface));
+    logi("raw_surface = %08p", raw_surface);
+    logi("first pixel = %u", raw_surface[0]);
+    check_android(gbuf->unlock());
+    // check_android(GraphicBufferMapper::get().unregisterBuffer(gbuf->handle));
+
+    EGLint img_attrs[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE, EGL_NONE };
+    EGLImageKHR img = eglCreateImageKHR(eglGetDisplay(EGL_DEFAULT_DISPLAY),
+                                        EGL_NO_CONTEXT,
+                                        EGL_NATIVE_BUFFER_ANDROID,
+                                        (EGLClientBuffer)gbuf->getNativeBuffer(),
+                                        img_attrs);
+    check_egl(img != EGL_NO_IMAGE_KHR);
+
+    GLuint texture_id;
+    glGenTextures(1, &texture_id);
+    check_gl();
+    glBindTexture(GL_TEXTURE_2D, texture_id);
+    check_gl();
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, img);
+    check_gl();
+    glDeleteTextures(1, &texture_id);
+    check_gl();
+
+    check_egl(eglDestroyImageKHR(eglGetDisplay(EGL_DEFAULT_DISPLAY), img));
+
+    check_android(GraphicBufferMapper::get().unregisterBuffer(gbuf->handle));
+  }
+
+  send_message(sock, message("terminate"), renderer_addr);
+  
+  check_unix(close(sock));
+  unlink(g_host_socket_path.c_str());
+  logi("successfully finished quick_texture_test");
+  return true;
+}
+
 /**
  * Initialize an EGL context for the current display.
  */
 int init_display(app_state* app) {
   EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-  eglInitialize(display, 0, 0);
+  assert(display != EGL_NO_DISPLAY);
+  check_egl(eglInitialize(display, 0, 0));
 
   const EGLint attribs[] = {
     EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
@@ -36,25 +108,24 @@ int init_display(app_state* app) {
   };
   EGLint numConfigs;
   EGLConfig config;
-  eglChooseConfig(display, attribs, &config, 1, &numConfigs);
+  check_egl(eglChooseConfig(display, attribs, &config, 1, &numConfigs));
 
   /* EGL_NATIVE_VISUAL_ID is an attribute of the EGLConfig that is
    * guaranteed to be accepted by ANativeWindow_setBuffersGeometry().
    * As soon as we picked a EGLConfig, we can safely reconfigure the
    * ANativeWindow buffers to match, using EGL_NATIVE_VISUAL_ID. */
   EGLint buffer_format;
-  eglGetConfigAttrib(display, config, EGL_NATIVE_VISUAL_ID, &buffer_format);
+  check_egl(eglGetConfigAttrib(display, config, EGL_NATIVE_VISUAL_ID, &buffer_format));
 
   ANativeWindow_setBuffersGeometry(app->android_app_instance->window, 0, 0, buffer_format);
 
   EGLSurface surface = eglCreateWindowSurface(
     display, config, app->android_app_instance->window, NULL);
+  check_egl(surface != EGL_NO_SURFACE);
   EGLContext context = eglCreateContext(display, config, NULL, NULL);
+  check_egl(context != EGL_NO_CONTEXT);
 
-  if(eglMakeCurrent(display, surface, surface, context) == EGL_FALSE) {
-    LOGW("Unable to eglMakeCurrent");
-    return -1;
-  }
+  check_egl(eglMakeCurrent(display, surface, surface, context));
 
   EGLint w, h;
   eglQuerySurface(display, surface, EGL_WIDTH, &w);
@@ -71,6 +142,9 @@ int init_display(app_state* app) {
   glEnable(GL_CULL_FACE);
   glShadeModel(GL_SMOOTH);
   glDisable(GL_DEPTH_TEST);
+  check_gl();
+
+  assert(quick_texture_test(context));
 
   return 0;
 }

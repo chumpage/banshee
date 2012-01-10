@@ -10,8 +10,9 @@ using namespace std;
 using namespace android;
 
 void run_renderer(int sock) {
-  unix_socket_address host_addr(g_host_socket_path);
-  send_message(sock, form_connect_message(), host_addr);
+  unix_socket_address host_addr;
+  message msg = recv_message(sock, &host_addr);
+  assert(msg.type == "connect");
 
   bool send_surface = true;
   bool hardware_surface = true;
@@ -42,7 +43,8 @@ void run_renderer(int sock) {
     fclose(file);
   }
 
-  message msg = recv_message(sock);
+  msg = recv_message(sock);
+  assert(msg.type == "terminate");
 }
 
 bool setup_and_run() {
@@ -54,7 +56,9 @@ bool setup_and_run() {
   unix_socket_address addr(g_renderer_socket_path);
   check_unix(bind(sock, addr.sock_addr(), addr.len()));
 
-  run_renderer(sock);
+  while(1)
+    run_renderer(sock);
+
   check_unix(close(sock));
   unlink(g_renderer_socket_path.c_str());
   return true;

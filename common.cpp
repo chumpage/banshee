@@ -168,6 +168,17 @@ sp<GraphicBuffer> message_to_graphic_buffer(const message& msg,
   return gb;
 }
 
+bool is_address_bound(const unix_socket_address& addr) {
+  int sock = socket(PF_UNIX, SOCK_DGRAM, 0);
+  check_unix(sock);
+  int rc = bind(sock, addr.sock_addr(), addr.len());
+  close(sock);
+  if(rc != 0 && rc != EADDRINUSE) {
+    check_unix(rc);
+  }
+  return rc == 0 ? false : true;
+}
+
 message recv_message(int sock, unix_socket_address* from_addr) {
   unix_socket_address from_addr_tmp;
   if(!from_addr)
@@ -218,7 +229,7 @@ message recv_message(int sock, unix_socket_address* from_addr) {
   }
 
   if(g_print_ipc)
-    printf("%s\n", debug_print_message(out_msg, "recv: ").c_str());
+    logi("%s\n", debug_print_message(out_msg, "recv: ").c_str());
 
   return out_msg;
  }
@@ -257,7 +268,7 @@ void send_message(int sock,
   }
 
   if(g_print_ipc)
-    printf("%s\n", debug_print_message(msg, "send: ").c_str());
+    logi("%s\n", debug_print_message(msg, "send: ").c_str());
 
   check_unix(sendmsg(sock, &socket_message, 0));
   delete[] fd_buffer;
