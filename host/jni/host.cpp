@@ -16,6 +16,11 @@
 using namespace std;
 using namespace android;
 
+float g_vertices[] = { 0,0,0, 1,1,0, 1,0,0,
+                       0,0,0, 0,1,0, 1,1,0 };
+float g_tex_coords[] = { 0,0, 1,1, 1,0,
+                         0,0, 0,1, 1,1 };
+
 struct gralloc_buffer : public LightRefBase<gralloc_buffer> {
   gralloc_buffer(sp<GraphicBuffer> gbuf);
   virtual ~gralloc_buffer();
@@ -75,6 +80,20 @@ struct renderer_connection {
   }
 };
 
+struct shader_state {
+  GLuint vertex_shader;
+  GLuint fragment_shader;
+  GLuint shader_program;
+  GLint mvp_loc;
+
+  shader_state()
+    : vertex_shader(0),
+      fragment_shader(0),
+      shader_program(0),
+      mvp_loc(-1) {
+  }
+};
+
 struct app_state {
   android_app* android_app_instance;
 
@@ -85,6 +104,7 @@ struct app_state {
   int32_t width;
   int32_t height;
   renderer_connection connection;
+  shader_state shader;
 };
 
 renderer_connection init_renderer_connection(int width, int height) {
@@ -129,9 +149,75 @@ void term_renderer_connection(renderer_connection& connection) {
   unlink(g_host_socket_path.c_str());
 }
 
-/**
- * Initialize an EGL context for the current display.
- */
+const char* vertex_shader_src = 
+"attribute vec3 pos;\n\
+attribute vec2 tex_coord;\n\
+uniform mat4 mvp;\n\
+varying mediump vec2 v_tex_coord;\n\
+\n\
+void main() {\n\
+  gl_Position = mvp*vec4(pos, 1.0);\n\
+  v_tex_coord = tex_coord;\n\
+}\n";
+
+const char* fragment_shader_src =
+"varying mediump vec2 v_tex_coord;\n\
+// uniform sampler2D texture;\n\
+\n\
+void main() {\n\
+  // gl_FragColor = texture2D(texture, v_tex_coord);\n\
+  gl_FragColor = vec4(0,1,0,1);\n\
+}\n";
+
+GLuint init_shader(const char* src, GLenum type) {
+  GLuint shader = glCreateShader(type);
+  check(shader != 0);
+  glShaderSource(shader, 1, (const GLchar**)&src, NULL);
+  check_gl();
+  glCompileShader(shader);
+  check_gl();
+  GLint compiled = GL_FALSE;
+  glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+  check(compiled == GL_TRUE);
+  return shader;
+}
+
+enum attribute_index {
+  attribute_position = 0,
+  attribute_tex_coord = 1
+};
+
+shader_state init_shader_program() {
+  shader_state state;
+  state.vertex_shader = init_shader(vertex_shader_src, GL_VERTEX_SHADER);
+  state.fragment_shader = init_shader(fragment_shader_src, GL_FRAGMENT_SHADER);
+  state.shader_program = glCreateProgram();
+  check(state.shader_program != 0);
+  glAttachShader(state.shader_program, state.vertex_shader);
+  glAttachShader(state.shader_program, state.fragment_shader);
+  check_gl();
+  glBindAttribLocation(state.shader_program, attribute_position, "pos");
+  glBindAttribLocation(state.shader_program, attribute_tex_coord, "tex_coord");
+  check_gl();
+  glLinkProgram(state.shader_program);
+  GLint linked = GL_FALSE;
+  glGetProgramiv(state.shader_program, GL_LINK_STATUS, (GLint*)&linked);
+  check(linked == GL_TRUE);
+  state.mvp_loc = glGetUniformLocation(state.shader_program, "mvp");
+  check(state.mvp_loc != -1);
+  check_gl();
+  return state;
+}
+
+void term_shader_program(shader_state& state) {
+  glDetachShader(state.shader_program, state.vertex_shader);
+  glDetachShader(state.shader_program, state.fragment_shader);
+  glDeleteShader(state.vertex_shader);
+  glDeleteShader(state.fragment_shader);
+  glDeleteProgram(state.shader_program);
+  state = shader_state();
+}
+
 int init_display(app_state* app) {
   EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
   assert(display != EGL_NO_DISPLAY);
@@ -181,25 +267,46 @@ int init_display(app_state* app) {
   app->width = w;
   app->height = h;
 
-  // Initialize GL state.
+  app->shader = init_shader_program();
+
+  glVertexAttribPointer(attribute_position, 3, GL_FLOAT, GL_FALSE, 0, g_vertices);
+  glEnableVertexAttribArray(attribute_position);
+  glVertexAttribPointer(attribute_tex_coord, 2, GL_FLOAT, GL_FALSE, 0, g_tex_coords);
+  glEnableVertexAttribArray(attribute_tex_coord);
+  check_gl();
+
   glDisable(GL_CULL_FACE);
   glDisable(GL_DEPTH_TEST);
   check_gl();
+
+  glViewport(0, 0, w, h);
 
   return 0;
 }
 
 static void draw_frame(app_state* app) {
   if(app->display == NULL) {
-    // No display.
     return;
   }
 
-  // Just fill the screen with a color.
+  glUseProgram(app->shader.shader_program);
+  check_gl();
+
+  // float mvp_matrix[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+  // Hard-coded orthographic transform. Creates a transform where the viewable area is
+  // the unit cube with dimensions (0 0 0) x (1 1 1).
+  float mvp_matrix[16] = {2,0,0,0, 0,2,0,0, 0,0,-2,0, -1,-1,-1,1};
+  glUniformMatrix4fv(app->shader.mvp_loc, 1, GL_FALSE, mvp_matrix);
+  check_gl();
+
   glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT);
+  check_gl();
 
-  eglSwapBuffers(app->display, app->surface);
+  glDrawArrays(GL_TRIANGLES, 0, 6);
+
+  check_gl();
+  check_egl(eglSwapBuffers(app->display, app->surface));
 }
 
 /**
@@ -207,6 +314,7 @@ static void draw_frame(app_state* app) {
  */
 static void term_display(app_state* app) {
   if(app->display != EGL_NO_DISPLAY) {
+    term_shader_program(app->shader);
     eglMakeCurrent(app->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if(app->context != EGL_NO_CONTEXT) {
       eglDestroyContext(app->display, app->context);
@@ -229,10 +337,7 @@ static void on_android_cmd(android_app* android_app_instance, int32_t cmd) {
   app_state* app = (app_state*)android_app_instance->userData;
   switch(cmd) {
   case APP_CMD_SAVE_STATE:
-    // The system has asked us to save our current state.  Do so.
-    // app->android_app_instance->savedState = malloc(sizeof(saved_state));
-    // *((saved_state*)app->android_app_instance->savedState) = app->state;
-    // app->android_app_instance->savedStateSize = sizeof(saved_state);
+    app->android_app_instance->savedState = NULL;
     app->android_app_instance->savedStateSize = 0;
     break;
   case APP_CMD_INIT_WINDOW:

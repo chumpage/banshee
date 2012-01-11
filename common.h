@@ -23,6 +23,15 @@ const bool g_print_ipc = true;
 #define loge(...) printf(__VA_ARGS__);
 #endif
 
+#define check(proc) \
+  { \
+    bool result = proc; \
+    if(!result) { \
+      loge("Check failed at file %s, line %d. Exiting.\n",  __FILE__, __LINE__); \
+      assert(false); \
+    } \
+  }
+
 #define check_unix(proc) \
   { \
     int rc = proc; \
