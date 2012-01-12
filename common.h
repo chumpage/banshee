@@ -10,7 +10,7 @@
 
 const std::string g_host_socket_path = "/data/local/banshee/ipc_host";
 const std::string g_renderer_socket_path = "/data/local/banshee/ipc_renderer";
-const bool g_print_ipc = true;
+const bool g_print_ipc = false;
 
 #if defined(ANDROID_APP)
 #include <android/log.h>

@@ -26,7 +26,7 @@ struct gralloc_buffer : public LightRefBase<gralloc_buffer> {
   virtual ~gralloc_buffer();
 
   sp<GraphicBuffer> gbuf;
-  EGLImageKHR egl_img; // EGL_NO_IMAGE_KHR
+  EGLImageKHR egl_img;
   GLuint texture_id;
 };
 
@@ -127,6 +127,15 @@ struct app_state {
   int32_t height;
   renderer_connection connection;
   shader_state shader;
+
+  app_state()
+    : animating(false),
+      display(EGL_NO_DISPLAY),
+      surface(EGL_NO_SURFACE),
+      context(EGL_NO_CONTEXT),
+      width(0),
+      height(0) {
+  }
 };
 
 renderer_connection init_renderer_connection(int width, int height) {
@@ -327,6 +336,12 @@ static void draw_frame(app_state* app) {
     return;
   }
 
+  unix_socket_address renderer_addr(g_renderer_socket_path);
+  send_message(app->connection.sock, message("render-frame"), renderer_addr);
+  message msg = recv_message(app->connection.sock);
+  check(msg.type == "frame-finished");
+  swap(app->connection.front_buffer, app->connection.back_buffer);
+
   glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   check_gl();
@@ -419,7 +434,6 @@ void android_main(android_app* android_app_instance) {
   // Make sure glue isn't stripped.
   app_dummy();
 
-  memset(&app, 0, sizeof(app));
   android_app_instance->userData = &app;
   android_app_instance->onAppCmd = on_android_cmd;
   app.android_app_instance = android_app_instance;
@@ -454,6 +468,7 @@ void android_main(android_app* android_app_instance) {
     if(app.animating) {
       // Drawing is throttled to the screen update rate, so there
       // is no need to do timing here.
+      usleep(500000);
       draw_frame(&app);
     }
   }

@@ -12,6 +12,10 @@
     - The output fragment color seems to be the reverse of what I expect. I expect it
       to be RGBA, but it looks like it's ABGR.
     - Non-power of 2 textures may not work.
+      - Actually the GLES 2 spec states that NPOT textures do work as long as you don't
+        use mipmapping and the wrap mode is clamp to edge, which is exactly what we
+        want. So NPOT is fine for drawing textures. For render to texture, I'm not sure
+        if NPOT is ok.
     - When alpha is 0, nothing shows up, even though I have blending disabled.
     - Initializing the texture with glTexImage2D was probably wrong, because I didn't
       have glPixelStorei(GL_UNPACK_ALIGNMENT, 1).

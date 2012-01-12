@@ -52,6 +52,10 @@ void run_renderer(int sock) {
 
       send_message(sock, form_surfaces_message(*front_gbuf, *back_gbuf), host_addr);
     }
+    else if(msg.type == "render-frame") {
+      check(front_gbuf.get() && back_gbuf.get());
+      send_message(sock, message("frame-finished"), host_addr);
+    }
     else if(msg.type == "file-test") {
       FILE* file = fopen("test.txt", "w");
       assert(file);
