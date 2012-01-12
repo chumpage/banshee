@@ -27,20 +27,21 @@ libs=$android_src/out/target/product/$android_product/symbols/system/lib/libui.s
 libs+=" $android_src/out/target/product/$android_product/symbols/system/lib/libutils.so"
 libs+=" $android_src/out/target/product/$android_product/symbols/system/lib/libcutils.so"
 libs+=" $ndk/sources/cxx-stl/stlport/libs/armeabi-v7a/libstlport_static.a"
+libs+=" -llog -landroid -lEGL -lGLESv2"
 compiler_opts="-fno-rtti -fno-exceptions -Wno-multichar"
 
 mkdir -p $out_dir
 
-cmd="$cpp_prog -g host.cpp common.cpp -o $out_dir/host $c_defs $compiler_opts $inc_dirs $libs"
-echo $cmd
-$cmd
+# cmd="$cpp_prog -g host.cpp common.cpp -o $out_dir/host $c_defs $compiler_opts $inc_dirs $libs"
+# echo $cmd
+# $cmd
 
 cmd="$cpp_prog -g renderer.cpp common.cpp -o $out_dir/renderer $c_defs $compiler_opts $inc_dirs $libs"
 echo $cmd
 $cmd
 
 echo Deploying to device
-adb push $out_dir/host /data/local/banshee/host
+# adb push $out_dir/host /data/local/banshee/host
 adb push $out_dir/renderer /data/local/banshee/renderer
 
 cd host
@@ -48,5 +49,9 @@ $ndk/ndk-build APP_OPTIM=debug ANDROID_SRC=$android_src ANDROID_PRODUCT=$android
 if [ ! -f build.xml ]; then
     android update project --target $android_target --path . --name BansheeHost
 fi
+# Clean before building, to work around this bug:
+#   http://code.google.com/p/android/issues/detail?id=22948
+# If your Android SDK isn't affected by that bug, don't do the clean.
+ant -q debug clean
 ant -q debug
 adb -d install -r bin/BansheeHost-debug.apk
