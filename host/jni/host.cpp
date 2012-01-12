@@ -36,23 +36,30 @@ struct renderer_connection {
   }
 };
 
-struct shader_state {
-  GLuint vertex_shader;
-  GLuint fragment_shader;
-  GLuint shader_program;
-  GLint pos_loc;
-  GLint tex_coord_loc;
-  GLint mvp_loc;
-  GLint texture_loc;
+struct host_shader_state {
+  shader_state shader;
+  GLint pos;
+  GLint tex_coord;
+  GLint mvp;
+  GLint texture;
 
-  shader_state()
-    : vertex_shader(0),
-      fragment_shader(0),
-      shader_program(0),
-      pos_loc(-1),
-      tex_coord_loc(-1),
-      mvp_loc(-1),
-      texture_loc(-1) {
+  host_shader_state()
+    : pos(-1),
+      tex_coord(-1),
+      mvp(-1),
+      texture(-1) {
+  }
+
+  host_shader_state(const shader_state& shader_,
+                    GLint pos_,
+                    GLint tex_coord_,
+                    GLint mvp_,
+                    GLint texture_)
+    : shader(shader_),
+      pos(pos_),
+      tex_coord(tex_coord_),
+      mvp(mvp_),
+      texture(texture_) {
   }
 };
 
@@ -61,7 +68,7 @@ struct app_state {
 
   gl_state gl;
   renderer_connection connection;
-  shader_state shader;
+  host_shader_state shader;
   bool animating;
   int32_t width;
   int32_t height;
@@ -142,61 +149,18 @@ void main() {\n\
   gl_FragColor = vec4(texture2D(texture, v_tex_coord).wzy, 1);\n\
 }\n";
 
-GLuint init_shader(const char* src, GLenum type) {
-  GLuint shader = glCreateShader(type);
-  check(shader != 0);
-  glShaderSource(shader, 1, (const GLchar**)&src, NULL);
-  check_gl();
-  glCompileShader(shader);
-  check_gl();
-  GLint compiled = GL_FALSE;
-  glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
-  if(compiled == GL_FALSE) {
-    GLint info_len = 0;
-    glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &info_len);
-
-    if (info_len > 0) {
-      string info_log(info_len, ' ');
-      glGetShaderInfoLog(shader, info_len, NULL, &info_log[0]);
-      loge("Shader compile error: %s", info_log.c_str());
-    }
-  }
-  check(compiled == GL_TRUE);
-  return shader;
+host_shader_state init_host_shader() {
+  shader_state shader = init_shader(vertex_shader_src, fragment_shader_src);
+  GLint pos = get_shader_attribute(shader, "pos");
+  GLint tex_coord = get_shader_attribute(shader, "tex_coord");
+  GLint mvp = get_shader_uniform(shader, "mvp");
+  GLint texture = get_shader_uniform(shader, "texture");
+  return host_shader_state(shader, pos, tex_coord, mvp, texture);
 }
 
-shader_state init_shader_program() {
-  shader_state state;
-  state.vertex_shader = init_shader(vertex_shader_src, GL_VERTEX_SHADER);
-  state.fragment_shader = init_shader(fragment_shader_src, GL_FRAGMENT_SHADER);
-  state.shader_program = glCreateProgram();
-  check(state.shader_program != 0);
-  glAttachShader(state.shader_program, state.vertex_shader);
-  glAttachShader(state.shader_program, state.fragment_shader);
-  check_gl();
-  glLinkProgram(state.shader_program);
-  GLint linked = GL_FALSE;
-  glGetProgramiv(state.shader_program, GL_LINK_STATUS, (GLint*)&linked);
-  check(linked == GL_TRUE);
-  state.pos_loc = glGetAttribLocation(state.shader_program, "pos");
-  check(state.pos_loc != -1);
-  state.tex_coord_loc = glGetAttribLocation(state.shader_program, "tex_coord");
-  check(state.tex_coord_loc != -1);
-  state.mvp_loc = glGetUniformLocation(state.shader_program, "mvp");
-  check(state.mvp_loc != -1);
-  state.texture_loc = glGetUniformLocation(state.shader_program, "texture");
-  check(state.texture_loc != -1);
-  check_gl();
-  return state;
-}
-
-void term_shader_program(shader_state& state) {
-  glDetachShader(state.shader_program, state.vertex_shader);
-  glDetachShader(state.shader_program, state.fragment_shader);
-  glDeleteShader(state.vertex_shader);
-  glDeleteShader(state.fragment_shader);
-  glDeleteProgram(state.shader_program);
-  state = shader_state();
+void term_host_shader(host_shader_state& shader) {
+  term_shader(shader.shader);
+  shader = host_shader_state();
 }
 
 void init_display(app_state& app) {
@@ -209,12 +173,12 @@ void init_display(app_state& app) {
   app.width = width;
   app.height = height;
 
-  app.shader = init_shader_program();
+  app.shader = init_host_shader();
 
-  glVertexAttribPointer(app.shader.pos_loc, 3, GL_FLOAT, GL_FALSE, 0, g_vertices);
-  glEnableVertexAttribArray(app.shader.pos_loc);
-  glVertexAttribPointer(app.shader.tex_coord_loc, 2, GL_FLOAT, GL_FALSE, 0, g_tex_coords);
-  glEnableVertexAttribArray(app.shader.tex_coord_loc);
+  glVertexAttribPointer(app.shader.pos, 3, GL_FLOAT, GL_FALSE, 0, g_vertices);
+  glEnableVertexAttribArray(app.shader.pos);
+  glVertexAttribPointer(app.shader.tex_coord, 2, GL_FLOAT, GL_FALSE, 0, g_tex_coords);
+  glEnableVertexAttribArray(app.shader.tex_coord);
   check_gl();
 
   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -241,20 +205,20 @@ void draw_frame(app_state* app) {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   check_gl();
 
-  glUseProgram(app->shader.shader_program);
+  glUseProgram(app->shader.shader.program);
   check_gl();
 
   // float mvp_matrix[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
   // Hard-coded orthographic transform. Creates a transform where the viewable area is
   // the unit cube with dimensions (0 0 0) x (1 1 1).
   float mvp_matrix[16] = {2,0,0,0, 0,2,0,0, 0,0,-2,0, -1,-1,-1,1};
-  glUniformMatrix4fv(app->shader.mvp_loc, 1, GL_FALSE, mvp_matrix);
+  glUniformMatrix4fv(app->shader.mvp, 1, GL_FALSE, mvp_matrix);
   check_gl();
 
   glActiveTexture(GL_TEXTURE0);
   glBindTexture(GL_TEXTURE_2D, app->connection.front_buffer->texture_id);
   check_gl();
-  glUniform1i(app->shader.texture_loc, 0);
+  glUniform1i(app->shader.texture, 0);
   check_gl();
 
   glDrawArrays(GL_TRIANGLES, 0, 6);
@@ -268,7 +232,7 @@ void draw_frame(app_state* app) {
  */
 void term_display(app_state& app) {
   app.animating = false;
-  term_shader_program(app.shader);
+  term_host_shader(app.shader);
   term_gl(app.gl);
 }
 

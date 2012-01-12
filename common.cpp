@@ -404,6 +404,100 @@ void term_gl(gl_state& gl) {
   gl = gl_state();
 }
 
+shader_state::shader_state()
+  : vertex_shader(0),
+    fragment_shader(0),
+    program(0) {
+}
+
+shader_state::shader_state(GLuint vertex_shader_,
+                           GLuint fragment_shader_,
+                           GLuint program_)
+  : vertex_shader(vertex_shader_),
+    fragment_shader(fragment_shader_),
+    program(program_) {
+}
+
+namespace {
+
+GLuint compile_shader(const char* src, GLenum type) {
+  GLuint shader = glCreateShader(type);
+  check(shader != 0);
+  glShaderSource(shader, 1, (const GLchar**)&src, NULL);
+  check_gl();
+  glCompileShader(shader);
+  check_gl();
+  GLint compiled = GL_FALSE;
+  glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+  if(compiled == GL_FALSE) {
+    GLint info_len = 0;
+    glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &info_len);
+    if (info_len > 0) {
+      string info_log(info_len, ' ');
+      glGetShaderInfoLog(shader, info_len, NULL, &info_log[0]);
+      loge("Shader compile error: %s", info_log.c_str());
+    }
+  }
+  check(compiled == GL_TRUE);
+  check_gl();
+  return shader;
+}
+
+GLuint link_program(GLint vertex_shader, GLint fragment_shader) {
+  GLuint program = glCreateProgram();
+  check(program != 0);
+  glAttachShader(program, vertex_shader);
+  glAttachShader(program, fragment_shader);
+  check_gl();
+  glLinkProgram(program);
+  GLint linked = GL_FALSE;
+  glGetProgramiv(program, GL_LINK_STATUS, (GLint*)&linked);
+  if(linked == GL_FALSE) {
+    GLint info_len = 0;
+    glGetProgramiv(program, GL_INFO_LOG_LENGTH, &info_len);
+    if (info_len > 0) {
+      string info_log(info_len, ' ');
+      glGetProgramInfoLog(program, info_len, NULL, &info_log[0]);
+      loge("Shader program link error: %s", info_log.c_str());
+    }
+  }
+  check(linked == GL_TRUE);
+  check_gl();
+  return program;
+}
+
+} // namespace {
+
+shader_state init_shader(const char* vertex_shader_src,
+                         const char* fragment_shader_src) {
+  GLint vertex_shader = compile_shader(vertex_shader_src, GL_VERTEX_SHADER);
+  GLint fragment_shader = compile_shader(fragment_shader_src, GL_FRAGMENT_SHADER);
+  GLint program = link_program(vertex_shader, fragment_shader);
+  return shader_state(vertex_shader, fragment_shader, program);
+}
+
+void term_shader(shader_state& shader) {
+  glDetachShader(shader.program, shader.vertex_shader);
+  glDetachShader(shader.program, shader.fragment_shader);
+  glDeleteShader(shader.vertex_shader);
+  glDeleteShader(shader.fragment_shader);
+  glDeleteProgram(shader.program);
+  check_gl();
+  shader = shader_state();
+}
+
+GLint get_shader_uniform(const shader_state& shader, const char* name) {
+  GLint loc = glGetUniformLocation(shader.program, name);
+  check(loc != -1);
+  return loc;
+}
+
+GLint get_shader_attribute(const shader_state& shader, const char* name) {
+  GLint loc = glGetAttribLocation(shader.program, name);
+  check(loc != -1);
+  return loc;
+}
+
 gralloc_buffer::gralloc_buffer(sp<GraphicBuffer> gbuf_)
   : gbuf(gbuf_), egl_img(EGL_NO_IMAGE_KHR), texture_id((GLuint)-1) {
   check_android(GraphicBufferMapper::get().registerBuffer(gbuf->handle));

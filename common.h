@@ -136,6 +136,23 @@ struct gl_state {
 gl_state init_gl(ANativeWindow* window, int pbuffer_width, int pbuffer_height);
 void term_gl(gl_state& state);
 
+struct shader_state {
+  GLuint vertex_shader;
+  GLuint fragment_shader;
+  GLuint program;
+
+  shader_state();
+  shader_state(GLuint vertex_shader_,
+               GLuint fragment_shader_,
+               GLuint program_);
+};
+
+shader_state init_shader(const char* vertex_shader_src,
+                         const char* fragment_shader_src);
+void term_shader(shader_state& shader);
+GLint get_shader_uniform(const shader_state& shader, const char* name);
+GLint get_shader_attribute(const shader_state& shader, const char* name);
+
 struct gralloc_buffer : public android::LightRefBase<gralloc_buffer> {
   android::sp<android::GraphicBuffer> gbuf;
   EGLImageKHR egl_img;
