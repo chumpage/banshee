@@ -130,10 +130,11 @@ void term_renderer_connection(renderer_connection& connection) {
 }
 
 const char* vertex_shader_src = 
-"attribute vec3 pos;\n\
+"precision mediump float;\n\
+attribute vec3 pos;\n\
 attribute vec2 tex_coord;\n\
 uniform mat4 mvp;\n\
-varying mediump vec2 v_tex_coord;\n\
+varying vec2 v_tex_coord;\n\
 \n\
 void main() {\n\
   gl_Position = mvp*vec4(pos, 1.0);\n\
@@ -142,7 +143,7 @@ void main() {\n\
 
 const char* fragment_shader_src =
 "precision mediump float;\n\
-varying mediump vec2 v_tex_coord;\n\
+varying vec2 v_tex_coord;\n\
 uniform sampler2D texture;\n\
 \n\
 void main() {\n\
@@ -314,7 +315,6 @@ void android_main(android_app* android_app_instance) {
     if(app.animating) {
       // Drawing is throttled to the screen update rate, so there
       // is no need to do timing here.
-      usleep(500000);
       draw_frame(&app);
     }
   }

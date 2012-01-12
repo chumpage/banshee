@@ -29,21 +29,47 @@ struct fbo_state {
   }
 };
 
+struct renderer_shader_state {
+  shader_state shader;
+  GLint pos;
+  GLint color;
+  GLint mvp;
+
+  renderer_shader_state()
+    : pos(-1),
+      color(-1),
+      mvp(-1) {
+  }
+
+  renderer_shader_state(const shader_state& shader_,
+                        GLint pos_,
+                        GLint color_,
+                        GLint mvp_)
+    : shader(shader_),
+      pos(pos_),
+      color(color_),
+      mvp(mvp_) {
+  }
+};
+
 struct renderer_state {
   gl_state gl;
   sp<gralloc_buffer> front_buf, back_buf;
   fbo_state fbo;
+  renderer_shader_state shader;
 
   renderer_state() { }
   
   renderer_state(const gl_state& gl_,
                  const sp<gralloc_buffer>& front_buf_,
                  const sp<gralloc_buffer>& back_buf_,
-                 const fbo_state& fbo_)
+                 const fbo_state& fbo_,
+                 const renderer_shader_state& shader_)
     : gl(gl_),
       front_buf(front_buf_),
       back_buf(back_buf_),
-      fbo(fbo_) {
+      fbo(fbo_),
+      shader(shader_) {
   }
 
   bool valid() { return gl.valid(); }
@@ -59,6 +85,8 @@ fbo_state init_fbo(int width, int height) {
   glBindRenderbuffer(GL_RENDERBUFFER, depth_rb);
   glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, width, height);
   check_gl();
+
+  return fbo_state(fb, depth_rb);
 }
 
 void term_fbo(fbo_state& fbo) {
@@ -66,6 +94,39 @@ void term_fbo(fbo_state& fbo) {
   glDeleteFramebuffers(1, &fbo.fb);
   check_gl();
   fbo = fbo_state();
+}
+
+const char* vertex_shader_src = 
+"precision mediump float;\n\
+attribute vec3 pos;\n\
+attribute vec3 color;\n\
+varying vec3 v_color;\n\
+uniform mat4 mvp;\n\
+\n\
+void main() {\n\
+  gl_Position = mvp*vec4(pos, 1.0);\n\
+  v_color = color;\n\
+}\n";
+
+const char* fragment_shader_src =
+"precision mediump float;\n\
+varying vec3 v_color;\n\
+\n\
+void main() {\n\
+  gl_FragColor = vec4(v_color, 1);\n\
+}\n";
+
+renderer_shader_state init_renderer_shader() {
+  shader_state shader = init_shader(vertex_shader_src, fragment_shader_src);
+  GLint pos = get_shader_attribute(shader, "pos");
+  GLint color = get_shader_attribute(shader, "color");
+  GLint mvp = get_shader_uniform(shader, "mvp");
+  return renderer_shader_state(shader, pos, color, mvp);
+}
+
+void term_renderer_shader(renderer_shader_state& shader) {
+  term_shader(shader.shader);
+  shader = renderer_shader_state();
 }
 
 renderer_state init_renderer(const int surface_width,
@@ -100,13 +161,16 @@ renderer_state init_renderer(const int surface_width,
 
   fbo_state fbo = init_fbo(surface_width, surface_height);
 
-  return renderer_state(gl, front_buf, back_buf, fbo);
+  renderer_shader_state shader = init_renderer_shader();
+
+  return renderer_state(gl, front_buf, back_buf, fbo, shader);
 }
 
 void term_renderer(renderer_state& renderer) {
   if(!renderer.valid())
     return;
 
+  term_renderer_shader(renderer.shader);
   term_fbo(renderer.fbo);
   renderer.front_buf.clear();
   renderer.back_buf.clear();
@@ -114,6 +178,30 @@ void term_renderer(renderer_state& renderer) {
 }
 
 void render_frame(renderer_state& renderer) {
+  glBindFramebuffer(GL_FRAMEBUFFER, renderer.fbo.fb);
+  check_gl();
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                         GL_TEXTURE_2D, renderer.back_buf->texture_id, 0);
+  check_gl();
+  glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+                            GL_RENDERBUFFER, renderer.fbo.depth_rb);
+  check_gl();
+  check(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+
+  static float color = 0.0f;
+  static float reverse = 1.0f;
+  float step = 1.0f/120.0f;
+  color += reverse*step;
+  if(color < 0.0f || color > 1.0f)
+    reverse *= -1.0f;
+
+  glClearColor(1.0f, 0.0f, color, 0.0f);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  check_gl();
+
+  glFinish();
+  check_gl();
+  swap(renderer.front_buf, renderer.back_buf);
 }
 
 void run_renderer(int sock) {
@@ -137,6 +225,7 @@ void run_renderer(int sock) {
     }
     else if(msg.type == "render-frame") {
       check(renderer.valid());
+      render_frame(renderer);
       send_message(sock, message("frame-finished"), host_addr);
     }
     else if(msg.type == "file-test") {
