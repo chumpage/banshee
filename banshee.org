@@ -5,7 +5,16 @@
   - [X] Using ancillary data mechanism of Unix sockets, transfer over GraphicBuffer
     object
   - [X] Switch to UDP sockets
-  - [ ] Setup a native activity with gles2 initialization
+  - [X] Setup a native activity with gles2 initialization
+  - Texture drawing problems
+    - I wasn't setting the min/mag texture filters. The default values use mipmaps, and
+      when they aren't set, you get black output.
+    - The output fragment color seems to be the reverse of what I expect. I expect it
+      to be RGBA, but it looks like it's ABGR.
+    - Non-power of 2 textures may not work.
+    - When alpha is 0, nothing shows up, even though I have blending disabled.
+    - Initializing the texture with glTexImage2D was probably wrong, because I didn't
+      have glPixelStorei(GL_UNPACK_ALIGNMENT, 1).
   - [ ] Have the host ask for a frame from the renderer, draw something from the
     renderer, then have the host draw it as a texture to the window
   - [ ] Switch away from GraphicBuffer, due to the private declarations. Instead

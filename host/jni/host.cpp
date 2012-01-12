@@ -45,9 +45,25 @@ gralloc_buffer::gralloc_buffer(sp<GraphicBuffer> gbuf_)
   glGenTextures(1, &texture_id);
   check_gl();
   glBindTexture(GL_TEXTURE_2D, texture_id);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   check_gl();
+
+// #define cpu_copy
+#ifdef cpu_copy
+  unsigned int* raw_surface = NULL;
+  check_android(gbuf->lock(GraphicBuffer::USAGE_SW_WRITE_OFTEN | GraphicBuffer::USAGE_SW_READ_OFTEN,
+                           (void**)&raw_surface));
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, gbuf->width, gbuf->height,
+               0, GL_RGBA, GL_UNSIGNED_BYTE, raw_surface);
+  check_gl();
+  check_android(gbuf->unlock());
+#else
   glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, egl_img);
   check_gl();
+#endif
 }
 
 gralloc_buffer::~gralloc_buffer() {
@@ -84,13 +100,19 @@ struct shader_state {
   GLuint vertex_shader;
   GLuint fragment_shader;
   GLuint shader_program;
+  GLint pos_loc;
+  GLint tex_coord_loc;
   GLint mvp_loc;
+  GLint texture_loc;
 
   shader_state()
     : vertex_shader(0),
       fragment_shader(0),
       shader_program(0),
-      mvp_loc(-1) {
+      pos_loc(-1),
+      tex_coord_loc(-1),
+      mvp_loc(-1),
+      texture_loc(-1) {
   }
 };
 
@@ -122,6 +144,7 @@ renderer_connection init_renderer_connection(int width, int height) {
   unix_socket_address renderer_addr(g_renderer_socket_path);
   send_message(sock, message("connect"), renderer_addr);
   send_message(sock, form_request_surfaces_message(width, height), renderer_addr);
+  // send_message(sock, form_request_surfaces_message(1024, 1024), renderer_addr);
 
   message msg = recv_message(sock);
   assert(msg.type == "surfaces");
@@ -139,6 +162,9 @@ renderer_connection init_renderer_connection(int width, int height) {
 }
 
 void term_renderer_connection(renderer_connection& connection) {
+  if(connection.sock == -1)
+    return;
+
   connection.front_buffer.clear();
   connection.back_buffer.clear();
 
@@ -147,6 +173,8 @@ void term_renderer_connection(renderer_connection& connection) {
   
   check_unix(close(connection.sock));
   unlink(g_host_socket_path.c_str());
+
+  connection = renderer_connection();
 }
 
 const char* vertex_shader_src = 
@@ -161,12 +189,12 @@ void main() {\n\
 }\n";
 
 const char* fragment_shader_src =
-"varying mediump vec2 v_tex_coord;\n\
-// uniform sampler2D texture;\n\
+"precision mediump float;\n\
+varying mediump vec2 v_tex_coord;\n\
+uniform sampler2D texture;\n\
 \n\
 void main() {\n\
-  // gl_FragColor = texture2D(texture, v_tex_coord);\n\
-  gl_FragColor = vec4(0,1,0,1);\n\
+  gl_FragColor = vec4(texture2D(texture, v_tex_coord).wzy, 1);\n\
 }\n";
 
 GLuint init_shader(const char* src, GLenum type) {
@@ -178,14 +206,19 @@ GLuint init_shader(const char* src, GLenum type) {
   check_gl();
   GLint compiled = GL_FALSE;
   glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+  if(compiled == GL_FALSE) {
+    GLint info_len = 0;
+    glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &info_len);
+
+    if (info_len > 0) {
+      string info_log(info_len, ' ');
+      glGetShaderInfoLog(shader, info_len, NULL, &info_log[0]);
+      loge("Shader compile error: %s", info_log.c_str());
+    }
+  }
   check(compiled == GL_TRUE);
   return shader;
 }
-
-enum attribute_index {
-  attribute_position = 0,
-  attribute_tex_coord = 1
-};
 
 shader_state init_shader_program() {
   shader_state state;
@@ -196,15 +229,18 @@ shader_state init_shader_program() {
   glAttachShader(state.shader_program, state.vertex_shader);
   glAttachShader(state.shader_program, state.fragment_shader);
   check_gl();
-  glBindAttribLocation(state.shader_program, attribute_position, "pos");
-  glBindAttribLocation(state.shader_program, attribute_tex_coord, "tex_coord");
-  check_gl();
   glLinkProgram(state.shader_program);
   GLint linked = GL_FALSE;
   glGetProgramiv(state.shader_program, GL_LINK_STATUS, (GLint*)&linked);
   check(linked == GL_TRUE);
+  state.pos_loc = glGetAttribLocation(state.shader_program, "pos");
+  check(state.pos_loc != -1);
+  state.tex_coord_loc = glGetAttribLocation(state.shader_program, "tex_coord");
+  check(state.tex_coord_loc != -1);
   state.mvp_loc = glGetUniformLocation(state.shader_program, "mvp");
   check(state.mvp_loc != -1);
+  state.texture_loc = glGetUniformLocation(state.shader_program, "texture");
+  check(state.texture_loc != -1);
   check_gl();
   return state;
 }
@@ -269,12 +305,14 @@ int init_display(app_state* app) {
 
   app->shader = init_shader_program();
 
-  glVertexAttribPointer(attribute_position, 3, GL_FLOAT, GL_FALSE, 0, g_vertices);
-  glEnableVertexAttribArray(attribute_position);
-  glVertexAttribPointer(attribute_tex_coord, 2, GL_FLOAT, GL_FALSE, 0, g_tex_coords);
-  glEnableVertexAttribArray(attribute_tex_coord);
+  glVertexAttribPointer(app->shader.pos_loc, 3, GL_FLOAT, GL_FALSE, 0, g_vertices);
+  glEnableVertexAttribArray(app->shader.pos_loc);
+  glVertexAttribPointer(app->shader.tex_coord_loc, 2, GL_FLOAT, GL_FALSE, 0, g_tex_coords);
+  glEnableVertexAttribArray(app->shader.tex_coord_loc);
   check_gl();
 
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glDisable(GL_BLEND);
   glDisable(GL_CULL_FACE);
   glDisable(GL_DEPTH_TEST);
   check_gl();
@@ -289,6 +327,10 @@ static void draw_frame(app_state* app) {
     return;
   }
 
+  glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  check_gl();
+
   glUseProgram(app->shader.shader_program);
   check_gl();
 
@@ -299,8 +341,10 @@ static void draw_frame(app_state* app) {
   glUniformMatrix4fv(app->shader.mvp_loc, 1, GL_FALSE, mvp_matrix);
   check_gl();
 
-  glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
-  glClear(GL_COLOR_BUFFER_BIT);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, app->connection.front_buffer->texture_id);
+  check_gl();
+  glUniform1i(app->shader.texture_loc, 0);
   check_gl();
 
   glDrawArrays(GL_TRIANGLES, 0, 6);
