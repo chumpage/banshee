@@ -7,6 +7,10 @@
 #include <sys/un.h>
 #include <ui/GraphicBuffer.h>
 #include <utils/RefBase.h>
+#include <android/native_window.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES2/gl2.h>
 
 const std::string g_host_socket_path = "/data/local/banshee/ipc_host";
 const std::string g_renderer_socket_path = "/data/local/banshee/ipc_renderer";
@@ -116,5 +120,29 @@ message recv_message(int socket, unix_socket_address* from_addr = NULL);
 void send_message(int socket,
                   const message& msg,
                   const unix_socket_address& to_addr);
+
+struct gl_state {
+  EGLDisplay display;
+  EGLSurface surface;
+  EGLContext context;
+
+  gl_state();
+  gl_state(EGLDisplay display, EGLSurface surface, EGLContext context);
+  bool valid();
+};
+
+// Either window is non-null and a window surface is created, or window is null and
+// a pbuffer surface is created with the specified width and height.
+gl_state init_gl(ANativeWindow* window, int pbuffer_width, int pbuffer_height);
+void term_gl(gl_state& state);
+
+struct gralloc_buffer : public android::LightRefBase<gralloc_buffer> {
+  android::sp<android::GraphicBuffer> gbuf;
+  EGLImageKHR egl_img;
+  GLuint texture_id;
+
+  gralloc_buffer(android::sp<android::GraphicBuffer> gbuf);
+  virtual ~gralloc_buffer();
+};
 
 #endif

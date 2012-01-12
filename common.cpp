@@ -5,6 +5,12 @@
 #include <vector>
 #include <string>
 #include <cassert>
+#include <ui/GraphicBufferMapper.h>
+#include <private/ui/sw_gralloc_handle.h>
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES2/gl2.h>
+#include <GLES2/gl2ext.h>
 
 using namespace std;
 using namespace android;
@@ -315,4 +321,136 @@ void send_message(int sock,
 
   check_unix(sendmsg(sock, &socket_message, 0));
   delete[] fd_buffer;
+}
+
+gl_state::gl_state()
+  : display(EGL_NO_DISPLAY),
+    surface(EGL_NO_SURFACE),
+    context(EGL_NO_CONTEXT) {
+}
+
+gl_state::gl_state(EGLDisplay display_, EGLSurface surface_, EGLContext context_)
+  : display(display_),
+    surface(surface_),
+    context(context_) {
+}
+
+bool gl_state::valid() {
+  return display != EGL_NO_DISPLAY;
+}
+
+gl_state init_gl(ANativeWindow* window, int pbuffer_width, int pbuffer_height) {
+  check(window || (pbuffer_width > 0  &&  pbuffer_height > 0));
+  EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+  assert(display != EGL_NO_DISPLAY);
+  check_egl(eglInitialize(display, 0, 0));
+
+  EGLint surface_type = window ? EGL_WINDOW_BIT : EGL_PBUFFER_BIT;
+  const EGLint config_attribs[] = {
+    EGL_SURFACE_TYPE, surface_type,
+    EGL_BLUE_SIZE, 8,
+    EGL_GREEN_SIZE, 8,
+    EGL_RED_SIZE, 8,
+    EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+    EGL_NONE
+  };
+  EGLint num_configs;
+  EGLConfig config;
+  check_egl(eglChooseConfig(display, config_attribs, &config, 1, &num_configs));
+
+  EGLSurface surface = EGL_NO_SURFACE;
+  if(window) {
+    // EGL_NATIVE_VISUAL_ID is an attribute of the EGLConfig that is
+    // guaranteed to be accepted by ANativeWindow_setBuffersGeometry().
+    // As soon as we picked a EGLConfig, we can safely reconfigure the
+    // ANativeWindow buffers to match, using EGL_NATIVE_VISUAL_ID.
+    EGLint buffer_format;
+    check_egl(eglGetConfigAttrib(display, config, EGL_NATIVE_VISUAL_ID, &buffer_format));
+    ANativeWindow_setBuffersGeometry(window, 0, 0, buffer_format);
+    surface = eglCreateWindowSurface(display, config, window, NULL);
+  }
+  else {
+    const EGLint surface_attribs[] = {
+      EGL_WIDTH, pbuffer_width,
+      EGL_HEIGHT, pbuffer_height,
+      EGL_NONE
+    };
+    surface = eglCreatePbufferSurface(display, config, surface_attribs);
+  }
+
+  check_egl(surface != EGL_NO_SURFACE);
+
+  const EGLint context_attribs[] = {
+    EGL_CONTEXT_CLIENT_VERSION, 2,
+    EGL_NONE
+  };
+  EGLContext context = eglCreateContext(display, config, NULL, context_attribs);
+  check_egl(context != EGL_NO_CONTEXT);
+
+  check_egl(eglMakeCurrent(display, surface, surface, context));
+
+  return gl_state(display, surface, context);
+}
+
+void term_gl(gl_state& gl) {
+  if(!gl.valid())
+    return;
+
+  check_egl(eglMakeCurrent(gl.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT));
+  check_egl(eglDestroyContext(gl.display, gl.context));
+  check_egl(eglDestroySurface(gl.display, gl.surface));
+  check_egl(eglTerminate(gl.display));
+
+  gl = gl_state();
+}
+
+gralloc_buffer::gralloc_buffer(sp<GraphicBuffer> gbuf_)
+  : gbuf(gbuf_), egl_img(EGL_NO_IMAGE_KHR), texture_id((GLuint)-1) {
+  check_android(GraphicBufferMapper::get().registerBuffer(gbuf->handle));
+
+  EGLint img_attrs[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE, EGL_NONE };
+  egl_img = eglCreateImageKHR(eglGetDisplay(EGL_DEFAULT_DISPLAY),
+                              EGL_NO_CONTEXT,
+                              EGL_NATIVE_BUFFER_ANDROID,
+                              (EGLClientBuffer)gbuf->getNativeBuffer(),
+                              img_attrs);
+  check_egl(egl_img != EGL_NO_IMAGE_KHR);
+
+  glGenTextures(1, &texture_id);
+  check_gl();
+  glBindTexture(GL_TEXTURE_2D, texture_id);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  check_gl();
+
+// #define cpu_copy
+#ifdef cpu_copy
+  unsigned int* raw_surface = NULL;
+  check_android(gbuf->lock(GraphicBuffer::USAGE_SW_WRITE_OFTEN | GraphicBuffer::USAGE_SW_READ_OFTEN,
+                           (void**)&raw_surface));
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, gbuf->width, gbuf->height,
+               0, GL_RGBA, GL_UNSIGNED_BYTE, raw_surface);
+  check_gl();
+  check_android(gbuf->unlock());
+#else
+  glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, egl_img);
+  check_gl();
+#endif
+}
+
+gralloc_buffer::~gralloc_buffer() {
+  if(texture_id != (GLuint)-1) {
+    glDeleteTextures(1, &texture_id);
+    check_gl();
+  }
+
+  if(egl_img != EGL_NO_IMAGE_KHR) {
+    check_egl(eglDestroyImageKHR(eglGetDisplay(EGL_DEFAULT_DISPLAY), egl_img));
+  }
+
+  if(gbuf.get()) {
+    check_android(GraphicBufferMapper::get().unregisterBuffer(gbuf->handle));
+  }
 }

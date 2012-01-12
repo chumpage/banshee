@@ -20,7 +20,8 @@ void set_graphic_buffer_solid_color(GraphicBuffer& gbuf, int red, int green, int
 }
 
 void run_renderer(int sock) {
-  sp<GraphicBuffer> front_gbuf, back_gbuf;
+  sp<gralloc_buffer> front_gbuf, back_gbuf;
+  gl_state gl;
 
   while(1) {
     unix_socket_address host_addr;
@@ -29,10 +30,14 @@ void run_renderer(int sock) {
     if(msg.type == "connect" || msg.type == "terminate") {
       front_gbuf.clear();
       back_gbuf.clear();
+      term_gl(gl);
     }
     else if(msg.type == "request-surfaces") {
       front_gbuf.clear();
       back_gbuf.clear();
+      term_gl(gl);
+
+      gl = init_gl(NULL, 1, 1);
 
       const bool hardware_surface = true;
       int width, height;
@@ -42,17 +47,23 @@ void run_renderer(int sock) {
       if(hardware_surface)
         gbuf_usage |= GraphicBuffer::USAGE_HW_TEXTURE;
 
-      front_gbuf = new GraphicBuffer(width, height, PIXEL_FORMAT_RGBA_8888, gbuf_usage);
-      check_android(front_gbuf->initCheck());
-      set_graphic_buffer_solid_color(*front_gbuf, 255, 0, 0);
+      sp<GraphicBuffer> front_graphic_buf =
+        new GraphicBuffer(width, height, PIXEL_FORMAT_RGBA_8888, gbuf_usage);
+      check_android(front_graphic_buf->initCheck());
+      set_graphic_buffer_solid_color(*front_graphic_buf, 255, 0, 0);
 
-      back_gbuf = new GraphicBuffer(width, height, PIXEL_FORMAT_RGBA_8888, gbuf_usage);
-      check_android(back_gbuf->initCheck());
-      set_graphic_buffer_solid_color(*back_gbuf, 0, 0, 255);
+      sp<GraphicBuffer> back_graphic_buf =
+        new GraphicBuffer(width, height, PIXEL_FORMAT_RGBA_8888, gbuf_usage);
+      check_android(back_graphic_buf->initCheck());
+      set_graphic_buffer_solid_color(*back_graphic_buf, 0, 0, 255);
 
-      send_message(sock, form_surfaces_message(*front_gbuf, *back_gbuf), host_addr);
+      front_gbuf = new gralloc_buffer(front_graphic_buf);
+      back_gbuf = new gralloc_buffer(back_graphic_buf);
+
+      send_message(sock, form_surfaces_message(*front_graphic_buf, *back_graphic_buf), host_addr);
     }
     else if(msg.type == "render-frame") {
+      check(gl.valid());
       check(front_gbuf.get() && back_gbuf.get());
       send_message(sock, message("frame-finished"), host_addr);
     }
