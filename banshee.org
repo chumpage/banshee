@@ -19,7 +19,7 @@
     - When alpha is 0, nothing shows up, even though I have blending disabled.
     - Initializing the texture with glTexImage2D was probably wrong, because I didn't
       have glPixelStorei(GL_UNPACK_ALIGNMENT, 1).
-  - [ ] Have the host ask for a frame from the renderer, draw something from the
+  - [X] Have the host ask for a frame from the renderer, draw something from the
     renderer, then have the host draw it as a texture to the window
   - [ ] Switch away from GraphicBuffer, due to the private declarations. Instead
     directly use GraphicBufferAllocator and GraphicBufferMapper.

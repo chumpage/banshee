@@ -162,4 +162,25 @@ struct gralloc_buffer : public android::LightRefBase<gralloc_buffer> {
   virtual ~gralloc_buffer();
 };
 
+double get_time(); // in seconds
+
+struct matrix {
+  std::vector<float> m;
+  matrix();
+  matrix(float m00, float m01, float m02, float m03,
+         float m10, float m11, float m12, float m13,
+         float m20, float m21, float m22, float m23,
+         float m30, float m31, float m32, float m33);
+  const float& operator()(int i, int j) const;
+  float& operator()(int i, int j);
+};
+
+matrix matrix_mult(const matrix& mat1, const matrix& mat2);
+matrix matrix_z_rot(float radians);
+matrix matrix_translate(float x, float y, float z);
+matrix matrix_scale(float x, float y, float z);
+matrix matrix_transpose(const matrix& mat);
+matrix matrix_ortho(
+  float left, float right, float bottom, float top, float near, float far);
+
 #endif

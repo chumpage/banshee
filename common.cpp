@@ -1,6 +1,7 @@
 #include "common.h"
 #include <sys/socket.h>
 #include <unistd.h>
+#include <time.h>
 #include <sstream>
 #include <vector>
 #include <string>
@@ -547,4 +548,82 @@ gralloc_buffer::~gralloc_buffer() {
   if(gbuf.get()) {
     check_android(GraphicBufferMapper::get().unregisterBuffer(gbuf->handle));
   }
+}
+
+double get_time() {
+  timespec time;
+  check_unix(clock_gettime(CLOCK_MONOTONIC, &time));
+  return double(time.tv_sec) + double(time.tv_nsec)/1000000000.0;
+}
+
+matrix::matrix() {
+  float identity[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+  m.insert(m.end(), identity, identity+16);
+}
+
+matrix::matrix(float m00, float m01, float m02, float m03,
+               float m10, float m11, float m12, float m13,
+               float m20, float m21, float m22, float m23,
+               float m30, float m31, float m32, float m33) {
+  m.resize(16);
+  matrix& t = *this;
+  t(0,0) = m00; t(0,1) = m01; t(0,2) = m02; t(0,3) = m03;
+  t(1,0) = m10; t(1,1) = m11; t(1,2) = m12; t(1,3) = m13;
+  t(2,0) = m20; t(2,1) = m21; t(2,2) = m22; t(2,3) = m23;
+  t(3,0) = m30; t(3,1) = m31; t(3,2) = m32; t(3,3) = m33;
+}
+
+const float& matrix::operator()(int i, int j) const {
+  return m.at(i*4 + j);
+}
+
+float& matrix::operator()(int i, int j) {
+  return m.at(i*4 + j);
+}
+
+matrix matrix_mult(const matrix& m1, const matrix& m2) {
+  matrix result;
+  for(int i = 0; i < 4; i++)
+    for(int j = 0; j < 4; j++)
+      result(i,j) = m1(i,0)*m2(0,j) + m1(i,1)*m2(1,j) + m1(i,2)*m2(2,j) + m1(i,3)*m2(3,j);
+  return result;
+}
+
+matrix matrix_z_rot(float radians) {
+  float s = sin(radians);
+  float c = cos(radians);
+  return matrix(c, -s, 0, 0,
+                s, c,  0, 0,
+                0, 0,  0, 0,
+                0, 0,  0, 1);
+}
+
+matrix matrix_translate(float x, float y, float z) {
+  return matrix(1,0,0,x, 0,1,0,y, 0,0,1,z, 0,0,0,1);
+}
+
+matrix matrix_scale(float x, float y, float z) {
+  return matrix(x,0,0,0, 0,y,0,0, 0,0,z,0, 0,0,0,1);
+}
+
+matrix matrix_transpose(const matrix& mat) {
+  matrix result;
+  for(int i = 0; i < 4; i++)
+    for(int j = 0; j < 4; j++)
+      result(i,j) = mat(j,i);
+  return result;
+}
+
+matrix matrix_ortho(
+  float left, float right, float bottom, float top, float near, float far) {
+  float rml = right-left;
+  float rpl = right+left;
+  float tmb = top-bottom;
+  float tpb = top+bottom;
+  float fmn = far-near;
+  float fpn = far+near;
+  return matrix(2.0/rml, 0,       0,      -rpl/rml,
+                0,       2.0/tmb, 0,      -tpb/tmb,
+                0,       0,       -2/fmn, -fpn/fmn,
+                0,       0,       0,      1);
 }

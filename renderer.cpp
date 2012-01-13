@@ -9,11 +9,15 @@
 using namespace std;
 using namespace android;
 
+float g_vertices[] = { 0, 0, 0,
+                       0.5, .866, 0,
+                       1, 0, 0 };
+float g_colors[] = { 1,0,0, 0,1,0, 0,0,1 };
+
 void set_graphic_buffer_solid_color(GraphicBuffer& gbuf, int red, int green, int blue) {
   unsigned int color = (red << 24) | (green << 16) | (blue << 8);
   unsigned int* raw_surface = NULL;
   check_android(gbuf.lock(GraphicBuffer::USAGE_SW_WRITE_OFTEN, (void**)&raw_surface));
-  //printf("raw_surface = %08p\n", raw_surface);
   for(int i = 0; i < gbuf.width*gbuf.height; i++)
     raw_surface[i] = color;
   check_android(gbuf.unlock());
@@ -57,8 +61,9 @@ struct renderer_state {
   sp<gralloc_buffer> front_buf, back_buf;
   fbo_state fbo;
   renderer_shader_state shader;
+  double start_time;
 
-  renderer_state() { }
+  renderer_state() : start_time(0) { }
   
   renderer_state(const gl_state& gl_,
                  const sp<gralloc_buffer>& front_buf_,
@@ -69,7 +74,8 @@ struct renderer_state {
       front_buf(front_buf_),
       back_buf(back_buf_),
       fbo(fbo_),
-      shader(shader_) {
+      shader(shader_),
+      start_time(get_time()) {
   }
 
   bool valid() { return gl.valid(); }
@@ -113,7 +119,7 @@ const char* fragment_shader_src =
 varying vec3 v_color;\n\
 \n\
 void main() {\n\
-  gl_FragColor = vec4(v_color, 1);\n\
+  gl_FragColor = vec4(v_color.xyz, 1);\n\
 }\n";
 
 renderer_shader_state init_renderer_shader() {
@@ -163,6 +169,12 @@ renderer_state init_renderer(const int surface_width,
 
   renderer_shader_state shader = init_renderer_shader();
 
+  glVertexAttribPointer(shader.pos, 3, GL_FLOAT, GL_FALSE, 0, g_vertices);
+  glEnableVertexAttribArray(shader.pos);
+  glVertexAttribPointer(shader.color, 3, GL_FLOAT, GL_FALSE, 0, g_colors);
+  glEnableVertexAttribArray(shader.color);
+  check_gl();
+
   return renderer_state(gl, front_buf, back_buf, fbo, shader);
 }
 
@@ -188,16 +200,22 @@ void render_frame(renderer_state& renderer) {
   check_gl();
   check(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
 
-  static float color = 0.0f;
-  static float reverse = 1.0f;
-  float step = 1.0f/120.0f;
-  color += reverse*step;
-  if(color < 0.0f || color > 1.0f)
-    reverse *= -1.0f;
+  glUseProgram(renderer.shader.shader.program);
+  check_gl();
 
-  glClearColor(1.0f, 0.0f, color, 0.0f);
+  glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   check_gl();
+
+  matrix mat = matrix_mult(matrix_scale(0.5, 0.5, 0.5),
+                           matrix_translate(-0.5, -0.333, 0));
+  mat = matrix_mult(matrix_z_rot(3.14*(get_time() - renderer.start_time)), mat);
+  mat = matrix_mult(matrix_translate(0.5, 0.5, 0), mat);
+  mat = matrix_mult(matrix_ortho(0,1, 0,1, 0,1), mat);
+  glUniformMatrix4fv(renderer.shader.mvp, 1, GL_FALSE, &matrix_transpose(mat).m[0]);
+  check_gl();
+
+  glDrawArrays(GL_TRIANGLES, 0, 3);
 
   glFinish();
   check_gl();

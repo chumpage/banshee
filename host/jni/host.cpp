@@ -21,6 +21,8 @@ float g_vertices[] = { 0,0,0, 1,1,0, 1,0,0,
 float g_tex_coords[] = { 0,0, 1,1, 1,0,
                          0,0, 0,1, 1,1 };
 
+const bool print_fps = false;
+
 struct renderer_connection {
   int sock;
   sp<gralloc_buffer> front_buffer;
@@ -72,12 +74,16 @@ struct app_state {
   bool animating;
   int32_t width;
   int32_t height;
+  double start_time;
+  int frame_count;
 
   app_state()
     : android_app_instance(NULL),
       animating(false),
       width(0),
-      height(0) {
+      height(0),
+      start_time(0),
+      frame_count(0) {
   }
 };
 
@@ -147,7 +153,7 @@ varying vec2 v_tex_coord;\n\
 uniform sampler2D texture;\n\
 \n\
 void main() {\n\
-  gl_FragColor = vec4(texture2D(texture, v_tex_coord).wzy, 1);\n\
+  gl_FragColor = texture2D(texture, v_tex_coord);\n\
 }\n";
 
 host_shader_state init_host_shader() {
@@ -189,6 +195,9 @@ void init_display(app_state& app) {
   check_gl();
 
   glViewport(0, 0, width, height);
+
+  app.start_time = get_time();
+  app.frame_count = 0;
 }
 
 void draw_frame(app_state* app) {
@@ -209,11 +218,10 @@ void draw_frame(app_state* app) {
   glUseProgram(app->shader.shader.program);
   check_gl();
 
-  // float mvp_matrix[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
   // Hard-coded orthographic transform. Creates a transform where the viewable area is
   // the unit cube with dimensions (0 0 0) x (1 1 1).
-  float mvp_matrix[16] = {2,0,0,0, 0,2,0,0, 0,0,-2,0, -1,-1,-1,1};
-  glUniformMatrix4fv(app->shader.mvp, 1, GL_FALSE, mvp_matrix);
+  glUniformMatrix4fv(app->shader.mvp, 1, GL_FALSE,
+                     &matrix_transpose(matrix_ortho(0,1, 0,1, 0,1)).m[0]);
   check_gl();
 
   glActiveTexture(GL_TEXTURE0);
@@ -226,6 +234,16 @@ void draw_frame(app_state* app) {
 
   check_gl();
   check_egl(eglSwapBuffers(app->gl.display, app->gl.surface));
+
+  if(app->frame_count == 180) {
+    if(print_fps) {
+      logi("fps: %d", int(float(app->frame_count)/(get_time() - app->start_time)));
+    }
+    app->start_time = get_time();
+    app->frame_count = 0;
+  }
+  else
+    app->frame_count++;
 }
 
 /**
