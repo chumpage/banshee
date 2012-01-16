@@ -36,14 +36,16 @@ mkdir -p $out_dir
 # echo $cmd
 # $cmd
 
+echo Building renderer
 cmd="$cpp_prog -g renderer.cpp common.cpp -o $out_dir/renderer $c_defs $compiler_opts $inc_dirs $libs"
 echo $cmd
 $cmd
 
-echo Deploying to device
+echo Deploying renderer to device
 # adb push $out_dir/host /data/local/banshee/host
 adb push $out_dir/renderer /data/local/banshee/renderer
 
+echo Building host
 cd host
 $ndk/ndk-build APP_OPTIM=debug ANDROID_SRC=$android_src ANDROID_PRODUCT=$android_product
 if [ ! -f build.xml ]; then
@@ -54,4 +56,5 @@ fi
 # If your Android SDK isn't affected by that bug, don't do the clean.
 ant -q debug clean
 ant -q debug
+echo Deploying host to device
 adb -d install -r bin/BansheeHost-debug.apk
