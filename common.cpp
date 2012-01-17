@@ -622,8 +622,8 @@ matrix matrix_ortho(
   float tpb = top+bottom;
   float fmn = far-near;
   float fpn = far+near;
-  return matrix(2.0/rml, 0,       0,      -rpl/rml,
-                0,       2.0/tmb, 0,      -tpb/tmb,
-                0,       0,       -2/fmn, -fpn/fmn,
-                0,       0,       0,      1);
+  return matrix(2.0/rml, 0,       0,        -rpl/rml,
+                0,       2.0/tmb, 0,        -tpb/tmb,
+                0,       0,       -2.0/fmn, -fpn/fmn,
+                0,       0,       0,        1);
 }
