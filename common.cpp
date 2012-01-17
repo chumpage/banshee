@@ -157,65 +157,23 @@ void unpack_request_surfaces_message(const message& msg, int* width, int* height
   *height = parse_str<int>(msg.args[1]);
 }
 
-namespace {
-
-void graphic_buffer_to_message(const GraphicBuffer& gb, message& msg) {
-  assert(gb.getFlattenedSize()%sizeof(int) == 0);
-  vector<int> buffer(gb.getFlattenedSize()/sizeof(int));
-  vector<int> fds(gb.getFdCount());
-  check_android(gb.flatten(&buffer[0], buffer.size()*sizeof(int),
-                           &fds[0], fds.size()));
-  vector<string> vals = serialize_ints(buffer);
-  msg.args.push_back(to_str(fds.size()));
-  msg.args.push_back(to_str(vals.size()));
-  msg.args.insert(msg.args.end(), vals.begin(), vals.end());
-  msg.fds.insert(msg.fds.end(), fds.begin(), fds.end());
-}
-
-sp<GraphicBuffer> message_to_graphic_buffer(const message& msg,
-                                            int& arg_offset,
-                                            int& fd_offset)
-{
-  assert(arg_offset < msg.args.size());
-  int num_fds = parse_str<int>(msg.args[arg_offset]);
-  arg_offset++;
-  int num_ints = parse_str<int>(msg.args[arg_offset]);
-  arg_offset++;
-  assert(fd_offset+num_fds <= msg.fds.size());
-  assert(arg_offset+num_ints <= msg.args.size());
-  vector<int> buffer = parse_ints(
-    vector<string>(msg.args.begin()+arg_offset,
-                   msg.args.begin()+arg_offset+num_ints));
-  arg_offset += num_ints;
-  vector<int> fds = vector<int>(msg.fds.begin()+fd_offset,
-                                msg.fds.begin()+fd_offset+num_fds);
-  fd_offset += num_fds;
-  sp<GraphicBuffer> gb = new GraphicBuffer;
-  assert(gb != NULL);
-  check_android(gb->unflatten(&buffer[0],
-                              buffer.size()*sizeof(int),
-                              const_cast<int*>(&fds[0]),
-                              fds.size()));
-  return gb;
-}
-
-} // namespace {
-
-message form_surfaces_message(const GraphicBuffer& front_gbuf,
-                              const GraphicBuffer& back_gbuf) {
+message form_surfaces_message(const gralloc_buffer& front_gbuf,
+                              const gralloc_buffer& back_gbuf) {
   message msg("surfaces");
-  graphic_buffer_to_message(front_gbuf, msg);
-  graphic_buffer_to_message(back_gbuf, msg);
+  front_gbuf.pack(msg);
+  back_gbuf.pack(msg);
   return msg;
 }
 
 void unpack_surfaces_message(const message& msg,
-                             sp<GraphicBuffer>* front_gbuf,
-                             sp<GraphicBuffer>* back_gbuf) {
+                             sp<gralloc_buffer>* front_gbuf,
+                             sp<gralloc_buffer>* back_gbuf) {
   assert(front_gbuf && back_gbuf);
   int arg_offset = 0, fd_offset = 0;
-  *front_gbuf = message_to_graphic_buffer(msg, arg_offset, fd_offset);
-  *back_gbuf = message_to_graphic_buffer(msg, arg_offset, fd_offset);
+  *front_gbuf = new gralloc_buffer;
+  *back_gbuf = new gralloc_buffer;
+  (*front_gbuf)->unpack(msg, arg_offset, fd_offset);
+  (*back_gbuf)->unpack(msg, arg_offset, fd_offset);
 }
 
 bool is_address_bound(const unix_socket_address& addr) {
@@ -499,43 +457,40 @@ GLint get_shader_attribute(const shader_state& shader, const char* name) {
   return loc;
 }
 
-gralloc_buffer::gralloc_buffer(sp<GraphicBuffer> gbuf_)
-  : gbuf(gbuf_), egl_img(EGL_NO_IMAGE_KHR), texture_id((GLuint)-1) {
-  check_android(GraphicBufferMapper::get().registerBuffer(gbuf->handle));
-
-  EGLint img_attrs[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE, EGL_NONE };
-  egl_img = eglCreateImageKHR(eglGetDisplay(EGL_DEFAULT_DISPLAY),
-                              EGL_NO_CONTEXT,
-                              EGL_NATIVE_BUFFER_ANDROID,
-                              (EGLClientBuffer)gbuf->getNativeBuffer(),
-                              img_attrs);
-  check_egl(egl_img != EGL_NO_IMAGE_KHR);
-
-  glGenTextures(1, &texture_id);
-  check_gl();
-  glBindTexture(GL_TEXTURE_2D, texture_id);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  check_gl();
-
-// #define cpu_copy
-#ifdef cpu_copy
-  unsigned int* raw_surface = NULL;
-  check_android(gbuf->lock(GraphicBuffer::USAGE_SW_WRITE_OFTEN | GraphicBuffer::USAGE_SW_READ_OFTEN,
-                           (void**)&raw_surface));
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, gbuf->width, gbuf->height,
-               0, GL_RGBA, GL_UNSIGNED_BYTE, raw_surface);
-  check_gl();
-  check_android(gbuf->unlock());
-#else
-  glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, egl_img);
-  check_gl();
-#endif
+void gralloc_buffer::init() {
+  native_buffer.width = 0;
+  native_buffer.height = 0;
+  native_buffer.stride = 0;
+  native_buffer.format = 0;
+  native_buffer.usage = 0;
+  native_buffer.transform = 0;
+  native_buffer.handle = NULL;
+  egl_img = EGL_NO_IMAGE_KHR;
+  texture_id = (GLuint)-1;
+  deallocate_handle = false;
 }
 
-gralloc_buffer::~gralloc_buffer() {
+gralloc_buffer::gralloc_buffer() {
+  init();
+}
+
+gralloc_buffer::gralloc_buffer(
+  int width, int height, PixelFormat pixel_format, unsigned int usage) {
+  init();
+
+  native_buffer.width = width;
+  native_buffer.height = height;
+  native_buffer.format = pixel_format;
+  native_buffer.usage = usage;
+
+  check_android(GraphicBufferAllocator::get().alloc(
+    width, height, pixel_format, usage, &native_buffer.handle, &native_buffer.stride));
+  deallocate_handle = true;
+  check_android(GraphicBufferMapper::get().registerBuffer(native_buffer.handle));
+  create_texture();
+}
+
+void gralloc_buffer::clear() {
   if(texture_id != (GLuint)-1) {
     glDeleteTextures(1, &texture_id);
     check_gl();
@@ -545,9 +500,139 @@ gralloc_buffer::~gralloc_buffer() {
     check_egl(eglDestroyImageKHR(eglGetDisplay(EGL_DEFAULT_DISPLAY), egl_img));
   }
 
-  if(gbuf.get()) {
-    check_android(GraphicBufferMapper::get().unregisterBuffer(gbuf->handle));
+  if(native_buffer.handle) {
+    check_android(GraphicBufferMapper::get().unregisterBuffer(native_buffer.handle));
+    if(deallocate_handle) // Actually deallocate the gralloc'd memory
+      GraphicBufferAllocator::get().free(native_buffer.handle);
+    else { // Just close and delete the handle
+      native_handle_close(native_buffer.handle);
+      native_handle_delete(const_cast<native_handle*>(native_buffer.handle));
+    }
   }
+
+  init();
+}
+
+gralloc_buffer::~gralloc_buffer() {
+  clear();
+}
+
+void* gralloc_buffer::lock(int usage, const Rect* rect) const {
+  void* addr;
+  Rect default_rect(native_buffer.width, native_buffer.height);
+  check_android(GraphicBufferMapper::get().lock(
+    native_buffer.handle, usage, rect ? *rect : default_rect, &addr));
+  return addr;
+}
+
+void gralloc_buffer::unlock() const {
+  check_android(GraphicBufferMapper::get().unlock(native_buffer.handle));
+}
+
+void gralloc_buffer::create_texture() {
+  EGLint img_attrs[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE, EGL_NONE };
+  printf("a-6\n");
+  egl_img = eglCreateImageKHR(eglGetDisplay(EGL_DEFAULT_DISPLAY),
+                              EGL_NO_CONTEXT,
+                              EGL_NATIVE_BUFFER_ANDROID,
+                              (EGLClientBuffer)&native_buffer,
+                              img_attrs);
+  printf("a-7\n");
+  check_egl(egl_img != EGL_NO_IMAGE_KHR);
+  printf("a-8\n");
+
+  printf("a-9\n");
+  glGenTextures(1, &texture_id);
+  printf("a-10\n");
+  check_gl();
+  printf("a-11\n");
+  glBindTexture(GL_TEXTURE_2D, texture_id);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  check_gl();
+  printf("a-12\n");
+
+// #define cpu_copy
+#ifdef cpu_copy
+  int usage = GraphicBufferAllocator::USAGE_SW_WRITE_OFTEN |
+              GraphicBufferAllocator::USAGE_SW_READ_OFTEN;
+  unsigned int* raw_surface = lock(usage);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, native_buffer.width, native_buffer.height,
+               0, GL_RGBA, GL_UNSIGNED_BYTE, raw_surface);
+  check_gl();
+  unlock();
+#else
+  printf("a-13\n");
+  glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, egl_img);
+  printf("a-14\n");
+  check_gl();
+  printf("a-15\n");
+#endif
+}
+
+void gralloc_buffer::pack(message& msg) const {
+  vector<string> args;
+  vector<int> fds;
+  args.push_back(to_str(native_buffer.width));
+  args.push_back(to_str(native_buffer.height));
+  args.push_back(to_str(native_buffer.stride));
+  args.push_back(to_str(native_buffer.format));
+  args.push_back(to_str(native_buffer.usage));
+  args.push_back(to_str(native_buffer.transform));
+  if(native_buffer.handle) {
+    args.push_back(to_str(native_buffer.handle->numFds));
+    args.push_back(to_str(native_buffer.handle->numInts));
+    for(int i = 0; i < native_buffer.handle->numInts; i++) {
+      int val = *(native_buffer.handle->data + native_buffer.handle->numFds + i);
+      args.push_back(to_str(val));
+    }
+    for(int i = 0; i < native_buffer.handle->numFds; i++)
+      fds.push_back(*(native_buffer.handle->data + i));
+  }
+  else {
+    args.push_back(to_str(0));
+    args.push_back(to_str(0));
+  }
+
+  msg.args.insert(msg.args.end(), args.begin(), args.end());
+  msg.fds.insert(msg.fds.end(), fds.begin(), fds.end());
+}
+
+void gralloc_buffer::unpack(const message& msg, int& arg_offset, int& fd_offset) {
+  clear();
+
+  const int num_fixed_args = 7;
+  check(arg_offset+num_fixed_args < msg.args.size());
+  native_buffer.width = parse_str<int>(msg.args[arg_offset+0]);
+  native_buffer.height = parse_str<int>(msg.args[arg_offset+1]);
+  native_buffer.stride = parse_str<int>(msg.args[arg_offset+2]);
+  native_buffer.format = parse_str<int>(msg.args[arg_offset+3]);
+  native_buffer.usage = parse_str<int>(msg.args[arg_offset+4]);
+  native_buffer.transform = parse_str<int>(msg.args[arg_offset+5]);
+  int num_fds = parse_str<int>(msg.args[arg_offset+6]);
+  int num_ints = parse_str<int>(msg.args[arg_offset+7]);
+  arg_offset += num_fixed_args;
+
+  check(num_ints != 0  &&  num_fds != 0);
+  native_buffer.handle = native_handle_create(num_fds, num_ints);
+
+  check(arg_offset+num_ints < msg.args.size());
+  vector<int> ints = parse_ints(vector<string>(msg.args.begin()+arg_offset,
+                                               msg.args.begin()+arg_offset+num_ints));
+  memcpy((void*)(native_buffer.handle->data+num_fds), &ints[0], num_ints*sizeof(int));
+  arg_offset += num_ints;
+
+  check(fd_offset+num_fds < msg.fds.size());
+  vector<int> fds = vector<int>(msg.fds.begin()+fd_offset,
+                                msg.fds.begin()+fd_offset+num_fds);
+  memcpy((void*)(native_buffer.handle->data), &fds[0], num_fds*sizeof(int));
+  fd_offset += num_fds;
+
+  deallocate_handle = false;
+  check_android(GraphicBufferMapper::get().registerBuffer(native_buffer.handle));
+  create_texture();
 }
 
 double get_time() {

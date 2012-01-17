@@ -5,12 +5,20 @@
 #include <string>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <ui/GraphicBuffer.h>
 #include <utils/RefBase.h>
 #include <android/native_window.h>
+#include <ui/PixelFormat.h>
+#include <ui/android_native_buffer.h>
+#include <ui/Rect.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>
+
+// Very nasty hack to work around a stupid compilation error:
+//   /st/fire/cloudos/mydroid/system/core/include/cutils/uio.h:33: error: redefinition of 'struct iovec'
+//   /st/android/ndk-r7-lab126/toolchains/arm-linux-androideabi-4.4.3/prebuilt/linux-x86/bin/../sysroot/usr/include/linux/uio.h:19: error: previous definition of 'struct iovec'
+#define _LIBS_CUTILS_UIO_H 
+#include <ui/GraphicBufferAllocator.h>
 
 const std::string g_host_socket_path = "/data/local/banshee/ipc_host";
 const std::string g_renderer_socket_path = "/data/local/banshee/ipc_renderer";
@@ -108,11 +116,12 @@ message form_terminate_message();
 message form_request_surfaces_message(int width, int height);
 void unpack_request_surfaces_message(const message& msg, int* width, int* height);
 
-message form_surfaces_message(const android::GraphicBuffer& front_gbuf,
-                              const android::GraphicBuffer& back_gbuf);
+struct gralloc_buffer;
+message form_surfaces_message(const gralloc_buffer& front_gbuf,
+                              const gralloc_buffer& back_gbuf);
 void unpack_surfaces_message(const message& msg,
-                             android::sp<android::GraphicBuffer>* front_gbuf,
-                             android::sp<android::GraphicBuffer>* back_gbuf);
+                             android::sp<gralloc_buffer>* front_gbuf,
+                             android::sp<gralloc_buffer>* back_gbuf);
 
 bool is_address_bound(const unix_socket_address& addr);
 
@@ -154,12 +163,29 @@ GLint get_shader_uniform(const shader_state& shader, const char* name);
 GLint get_shader_attribute(const shader_state& shader, const char* name);
 
 struct gralloc_buffer : public android::LightRefBase<gralloc_buffer> {
-  android::sp<android::GraphicBuffer> gbuf;
+// struct gralloc_buffer : public EGLNativeBase<android_native_buffer_t, 
+//                                              gralloc_buffer, 
+//                                              LightRefBase<gralloc_buffer> > {
+  android_native_buffer_t native_buffer;
   EGLImageKHR egl_img;
   GLuint texture_id;
 
-  gralloc_buffer(android::sp<android::GraphicBuffer> gbuf);
+  gralloc_buffer();
+  gralloc_buffer(
+    int width, int height, android::PixelFormat pixel_format, unsigned int usage);
   virtual ~gralloc_buffer();
+
+  void pack(message& msg) const;
+  void unpack(const message& msg, int& arg_offset, int& fd_offset);
+
+  void* lock(int usage, const android::Rect* rect = NULL) const;
+  void unlock() const;
+
+private:
+  bool deallocate_handle;
+  void init();
+  void clear();
+  void create_texture();
 };
 
 double get_time(); // in seconds

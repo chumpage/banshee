@@ -14,13 +14,13 @@ float g_vertices[] = { 0, 0, 0,
                        1, 0, 0 };
 float g_colors[] = { 1,0,0, 0,1,0, 0,0,1 };
 
-void set_graphic_buffer_solid_color(GraphicBuffer& gbuf, int red, int green, int blue) {
+void set_gralloc_buffer_solid_color(gralloc_buffer& gbuf, int red, int green, int blue) {
   unsigned int color = (red << 24) | (green << 16) | (blue << 8);
-  unsigned int* raw_surface = NULL;
-  check_android(gbuf.lock(GraphicBuffer::USAGE_SW_WRITE_OFTEN, (void**)&raw_surface));
-  for(int i = 0; i < gbuf.width*gbuf.height; i++)
+  unsigned int* raw_surface = (unsigned int*)gbuf.lock(
+    GraphicBufferAllocator::USAGE_SW_WRITE_OFTEN);
+  for(int i = 0; i < gbuf.native_buffer.width*gbuf.native_buffer.height; i++)
     raw_surface[i] = color;
-  check_android(gbuf.unlock());
+  gbuf.unlock();
 }
 
 struct fbo_state {
@@ -148,22 +148,18 @@ renderer_state init_renderer(const int surface_width,
   glViewport(0, 0, surface_width, surface_height);
 
   const bool hardware_surface = true;
-  int gbuf_usage = GraphicBuffer::USAGE_SW_WRITE_OFTEN | GraphicBuffer::USAGE_SW_READ_OFTEN;
+  int gbuf_usage = GraphicBufferAllocator::USAGE_SW_WRITE_OFTEN |
+                   GraphicBufferAllocator::USAGE_SW_READ_OFTEN;
   if(hardware_surface)
-    gbuf_usage |= GraphicBuffer::USAGE_HW_TEXTURE;
+    gbuf_usage |= GraphicBufferAllocator::USAGE_HW_TEXTURE;
 
-  sp<GraphicBuffer> front_graphic_buf = new GraphicBuffer(
+  sp<gralloc_buffer> front_gbuf = new gralloc_buffer(
     surface_width, surface_height, PIXEL_FORMAT_RGBA_8888, gbuf_usage);
-  check_android(front_graphic_buf->initCheck());
-  set_graphic_buffer_solid_color(*front_graphic_buf, 255, 0, 0);
+  set_gralloc_buffer_solid_color(*front_gbuf, 255, 0, 0);
 
-  sp<GraphicBuffer> back_graphic_buf = new GraphicBuffer(
+  sp<gralloc_buffer> back_gbuf = new gralloc_buffer(
     surface_width, surface_height, PIXEL_FORMAT_RGBA_8888, gbuf_usage);
-  check_android(back_graphic_buf->initCheck());
-  set_graphic_buffer_solid_color(*back_graphic_buf, 0, 0, 255);
-
-  sp<gralloc_buffer> front_buf = new gralloc_buffer(front_graphic_buf);
-  sp<gralloc_buffer> back_buf = new gralloc_buffer(back_graphic_buf);
+  set_gralloc_buffer_solid_color(*back_gbuf, 0, 0, 255);
 
   fbo_state fbo = init_fbo(surface_width, surface_height);
 
@@ -175,7 +171,7 @@ renderer_state init_renderer(const int surface_width,
   glEnableVertexAttribArray(shader.color);
   check_gl();
 
-  return renderer_state(gl, front_buf, back_buf, fbo, shader);
+  return renderer_state(gl, front_gbuf, back_gbuf, fbo, shader);
 }
 
 void term_renderer(renderer_state& renderer) {
@@ -238,7 +234,7 @@ void run_renderer(int sock) {
       renderer = init_renderer(width, height);
 
       message msg = form_surfaces_message(
-        *renderer.front_buf->gbuf, *renderer.back_buf->gbuf);
+        *renderer.front_buf, *renderer.back_buf);
       send_message(sock, msg, host_addr);
     }
     else if(msg.type == "render-frame") {

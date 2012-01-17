@@ -7,10 +7,6 @@
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <android_native_app_glue.h>
-#include <ui/GraphicBuffer.h>
-#include <ui/GraphicBufferMapper.h>
-#include <private/ui/sw_gralloc_handle.h>
-#include <utils/RefBase.h>
 #include "../../common.h"
 
 using namespace std;
@@ -106,17 +102,14 @@ renderer_connection init_renderer_connection(int width, int height) {
 
   message msg = recv_message(sock);
   assert(msg.type == "surfaces");
-  sp<GraphicBuffer> front_gbuf, back_gbuf;
+  sp<gralloc_buffer> front_gbuf, back_gbuf;
   unpack_surfaces_message(msg, &front_gbuf, &back_gbuf);
-  assert(front_gbuf->width == width);
-  assert(front_gbuf->height == height);
-  assert(back_gbuf->width == width);
-  assert(back_gbuf->height == height);
+  assert(front_gbuf->native_buffer.width == width);
+  assert(front_gbuf->native_buffer.height == height);
+  assert(back_gbuf->native_buffer.width == width);
+  assert(back_gbuf->native_buffer.height == height);
 
-  sp<gralloc_buffer> front_gralloc_buffer = new gralloc_buffer(front_gbuf);
-  sp<gralloc_buffer> back_gralloc_buffer = new gralloc_buffer(back_gbuf);
-
-  return renderer_connection(sock, front_gralloc_buffer, back_gralloc_buffer);
+  return renderer_connection(sock, front_gbuf, back_gbuf);
 }
 
 void term_renderer_connection(renderer_connection& connection) {
