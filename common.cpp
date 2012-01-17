@@ -59,7 +59,7 @@ vector<int> parse_ints(const vector<string>& args) {
 
 string debug_print_message(const message& msg, const string& header) {
   ostringstream ss;
-  ss << header << " " << msg.type;
+  ss << header << msg.type;
   if(!msg.args.empty()) {
     ss << ", args(" << msg.args.size() << ") =";
     for(int i = 0; i < msg.args.size(); i++)
@@ -531,28 +531,21 @@ void gralloc_buffer::unlock() const {
 
 void gralloc_buffer::create_texture() {
   EGLint img_attrs[] = { EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE, EGL_NONE };
-  printf("a-6\n");
   egl_img = eglCreateImageKHR(eglGetDisplay(EGL_DEFAULT_DISPLAY),
                               EGL_NO_CONTEXT,
                               EGL_NATIVE_BUFFER_ANDROID,
                               (EGLClientBuffer)&native_buffer,
                               img_attrs);
-  printf("a-7\n");
   check_egl(egl_img != EGL_NO_IMAGE_KHR);
-  printf("a-8\n");
 
-  printf("a-9\n");
   glGenTextures(1, &texture_id);
-  printf("a-10\n");
   check_gl();
-  printf("a-11\n");
   glBindTexture(GL_TEXTURE_2D, texture_id);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   check_gl();
-  printf("a-12\n");
 
 // #define cpu_copy
 #ifdef cpu_copy
@@ -564,11 +557,8 @@ void gralloc_buffer::create_texture() {
   check_gl();
   unlock();
 #else
-  printf("a-13\n");
   glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, egl_img);
-  printf("a-14\n");
   check_gl();
-  printf("a-15\n");
 #endif
 }
 
@@ -580,7 +570,7 @@ void gralloc_buffer::pack(message& msg) const {
   args.push_back(to_str(native_buffer.stride));
   args.push_back(to_str(native_buffer.format));
   args.push_back(to_str(native_buffer.usage));
-  args.push_back(to_str(native_buffer.transform));
+  args.push_back(to_str(int(native_buffer.transform)));
   if(native_buffer.handle) {
     args.push_back(to_str(native_buffer.handle->numFds));
     args.push_back(to_str(native_buffer.handle->numInts));
@@ -603,8 +593,8 @@ void gralloc_buffer::pack(message& msg) const {
 void gralloc_buffer::unpack(const message& msg, int& arg_offset, int& fd_offset) {
   clear();
 
-  const int num_fixed_args = 7;
-  check(arg_offset+num_fixed_args < msg.args.size());
+  const int num_fixed_args = 8;
+  check(arg_offset+num_fixed_args <= msg.args.size());
   native_buffer.width = parse_str<int>(msg.args[arg_offset+0]);
   native_buffer.height = parse_str<int>(msg.args[arg_offset+1]);
   native_buffer.stride = parse_str<int>(msg.args[arg_offset+2]);
@@ -618,13 +608,13 @@ void gralloc_buffer::unpack(const message& msg, int& arg_offset, int& fd_offset)
   check(num_ints != 0  &&  num_fds != 0);
   native_buffer.handle = native_handle_create(num_fds, num_ints);
 
-  check(arg_offset+num_ints < msg.args.size());
+  check(arg_offset+num_ints <= msg.args.size());
   vector<int> ints = parse_ints(vector<string>(msg.args.begin()+arg_offset,
                                                msg.args.begin()+arg_offset+num_ints));
   memcpy((void*)(native_buffer.handle->data+num_fds), &ints[0], num_ints*sizeof(int));
   arg_offset += num_ints;
 
-  check(fd_offset+num_fds < msg.fds.size());
+  check(fd_offset+num_fds <= msg.fds.size());
   vector<int> fds = vector<int>(msg.fds.begin()+fd_offset,
                                 msg.fds.begin()+fd_offset+num_fds);
   memcpy((void*)(native_buffer.handle->data), &fds[0], num_fds*sizeof(int));

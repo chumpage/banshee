@@ -162,11 +162,15 @@ void term_shader(shader_state& shader);
 GLint get_shader_uniform(const shader_state& shader, const char* name);
 GLint get_shader_attribute(const shader_state& shader, const char* name);
 
+struct gralloc_native_buffer
+  : public android::EGLNativeBase<android_native_buffer_t, 
+                                  gralloc_native_buffer, 
+                                  android::LightRefBase<gralloc_native_buffer> > {
+};
+
 struct gralloc_buffer : public android::LightRefBase<gralloc_buffer> {
-// struct gralloc_buffer : public EGLNativeBase<android_native_buffer_t, 
-//                                              gralloc_buffer, 
-//                                              LightRefBase<gralloc_buffer> > {
-  android_native_buffer_t native_buffer;
+  // android_native_buffer_t native_buffer;
+  gralloc_native_buffer native_buffer;
   EGLImageKHR egl_img;
   GLuint texture_id;
 
